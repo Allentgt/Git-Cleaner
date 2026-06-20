@@ -296,6 +296,58 @@ DataTable > .datatable--header {
     height: 1;
 }
 
+#health-status-bar {
+    height: auto;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
+
+#health-status-label {
+    text-style: bold;
+    padding: 0;
+}
+
+#health-status-badge {
+    padding: 0 0 0 1;
+}
+
+#health-status-badge.good {
+    color: $success;
+}
+
+#health-status-badge.fair {
+    color: $warning;
+}
+
+#health-status-badge.poor {
+    color: $error;
+}
+
+#health-status-divider {
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#health-recommendations {
+    height: auto;
+    margin: 0 0 0 0;
+}
+
+#health-recommendations .reco-item {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#health-recommendations .reco-item.needs-attention {
+    color: $warning;
+}
+
+#health-recommendations .reco-item.all-good {
+    color: $text-muted;
+    text-style: italic;
+}
+
 #tasks-section {
     height: auto;
     margin: 1 2;
@@ -526,11 +578,20 @@ class MaintenanceScreen(Screen):
 
             with Vertical(id="health-stats"):
                 yield Label("Repository Health", classes="section-title")
+                with Horizontal(id="health-status-bar"):
+                    yield Label("Status:", id="health-status-label")
+                    yield Label("—", id="health-status-badge")
+                    yield Label("|", id="health-status-divider")
+                    yield Label("No recommendations", id="health-status-reco")
                 yield Label("", id="stat-git-size", classes="health-stat")
                 yield Label("", id="stat-loose", classes="health-stat")
                 yield Label("", id="stat-packed", classes="health-stat")
                 yield Label("", id="stat-garbage", classes="health-stat")
                 yield Label("", id="stat-prune", classes="health-stat")
+                with Vertical(id="health-recommendations"):
+                    yield Label("", id="reco-0", classes="reco-item")
+                    yield Label("", id="reco-1", classes="reco-item")
+                    yield Label("", id="reco-2", classes="reco-item")
                 with Horizontal(classes="center-row"):
                     yield Button("Refresh", id="refresh-health", variant="default")
 
@@ -605,6 +666,39 @@ class MaintenanceScreen(Screen):
 
     # ── Health stats ────────────────────────────────────────────────────
 
+    def _assess_health(self, stats: dict[str, str]) -> tuple[str, str, list[str]]:
+        """Analyse stats and return (badge_text, badge_class, recommendations)."""
+        try:
+            count = int(stats.get("count", "0"))
+            garbage = int(stats.get("garbage", "0"))
+            pp = int(stats.get("prune-packable", "0"))
+        except ValueError:
+            return "Unknown", "fair", []
+
+        issues: list[str] = []
+
+        if count > 200:
+            issues.append(f"High loose object count ({count}) — run Git GC to pack them")
+        elif count > 50:
+            issues.append(f"{count} loose objects — run Git GC to pack them")
+
+        if garbage > 0:
+            items = "items" if garbage > 1 else "item"
+            issues.append(f"{garbage} garbage {items} — run Git GC to clean up")
+
+        if pp > 50:
+            issues.append(f"{pp} prune-packable objects — run Repack for better delta compression")
+        elif pp > 0:
+            issues.append(f"{pp} prune-packable objects — run Repack")
+
+        if not issues:
+            return "Good", "good", []
+
+        if len(issues) <= 1:
+            return "Fair", "fair", issues
+
+        return "Needs Attention", "poor", issues
+
     def _update_health(self) -> None:
         try:
             git_size = get_git_dir_size(self.repo_path)
@@ -655,6 +749,36 @@ class MaintenanceScreen(Screen):
         self.query_one("#stat-prune", Label).update(
             f"Prune-packable: {prune_packable}"
         )
+
+        # ── Health assessment ────────────────────────────────────────
+        badge, css_class, recommendations = self._assess_health(stats)
+
+        badge_widget = self.query_one("#health-status-badge", Label)
+        badge_widget.update(badge)
+        badge_widget.remove_class("good", "fair", "poor")
+        badge_widget.add_class(css_class)
+
+        # Show the most actionable recommendation inline
+        reco_summary = self.query_one("#health-status-reco", Label)
+        if recommendations:
+            reco_summary.update(recommendations[0])
+        else:
+            reco_summary.update("Repo is healthy")
+
+        # Fill the recommendation detail lines
+        for i in range(3):
+            item = self.query_one(f"#reco-{i}", Label)
+            if i < len(recommendations):
+                item.update(f"• {recommendations[i]}")
+                item.remove_class("all-good", "needs-attention")
+                item.add_class("needs-attention")
+            else:
+                item.remove_class("needs-attention", "all-good")
+                if i == 0 and not recommendations:
+                    item.update("✓ No maintenance needed")
+                    item.add_class("all-good")
+                else:
+                    item.update("")
 
     def action_refresh_health(self) -> None:
         self._update_health()
