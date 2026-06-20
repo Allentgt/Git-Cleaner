@@ -1,4 +1,9 @@
-# git-cleaner
+```text
+                                                                                    ████   ████  ████     █████ ██     █████  █████  ██▄ ██  █████  █████
+                                                                                    ██ ▄▄   ██    ██      ██ ▀▀ ██     ██▄▄   ██ ██  ██████  ██▄▄   ██▄██
+                                                                                    ██▄██  ▄██▄   ██      ██▄██ ██▄██  ██▄▄▄  █████  ██▀███  ██▄▄▄  ██▀█▄
+                                                                                    ▀▀▀▀▀  ▀▀▀▀   ▀▀      ▀▀▀▀▀ ▀▀▀▀▀  ▀▀▀▀▀  ▀▀ ▀▀  ▀▀  ▀▀  ▀▀▀▀▀  ▀▀ ▀▀
+```
 
 A **TUI tool** for interactively browsing and bulk-deleting git branches, plus **repo maintenance** (GC, repack, prune). Pick a date range, review branches with their last-commit dates, and delete locally and/or on remote — protected and blacklisted branches are automatically safeguarded.
 
