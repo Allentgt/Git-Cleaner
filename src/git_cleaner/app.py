@@ -16,6 +16,7 @@ from textual.widgets import (
 from textual.containers import Horizontal, Vertical, Grid
 from textual.binding import Binding
 
+from git_cleaner.logo import SLIM_LOGO
 from git_cleaner.config import (
     get_protected_patterns,
     get_blacklist_patterns,
@@ -80,19 +81,17 @@ Footer {
     margin: 0 4 0 4;
     border: solid $primary 30%;
     text-align: center;
+    overflow-x: auto;
 }
 
-#title-banner .logo-text {
+#ascii-logo {
     text-style: bold;
-    color: #6366F1;
-}
-
-#title-banner .logo-accent {
     color: #10B981;
-}
-
-#title-banner .logo-sub {
-    color: $text-muted;
+    height: 2;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    text-align: center;
 }
 
 #repo-label {
@@ -441,9 +440,7 @@ class CalendarScreen(Screen):
         yield Header()
         with Vertical(id="main-content"):
             with Vertical(id="title-banner"):
-                yield Label(
-                    "[bold #6366F1]git-cleaner[/]  [#10B981]│[/]  [dim]branch management & maintenance[/]",
-                )
+                yield Static(SLIM_LOGO, id="ascii-logo")
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Horizontal(id="date-display"):
@@ -598,9 +595,7 @@ class MaintenanceScreen(Screen):
         yield Header()
         with Vertical(id="main-content"):
             with Vertical(id="title-banner"):
-                yield Label(
-                    "[bold #6366F1]git-cleaner[/]  [#10B981]│[/]  [dim]maintenance & optimization[/]",
-                )
+                yield Static(SLIM_LOGO, id="ascii-logo")
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Vertical(id="health-stats"):
@@ -956,10 +951,7 @@ class BranchListScreen(Screen):
             f"From: {self.since or 'any'}  To: {self.until or 'any'}"
         )
         with Vertical(id="title-banner"):
-            yield Label(
-                "[bold #6366F1]git-cleaner[/]  [#10B981]│[/]  [dim]branch cleanup[/]",
-            )
-            yield Label(range_label, id="range-label", classes="logo-sub")
+            yield Static(SLIM_LOGO, id="ascii-logo")
         yield DataTable(id="branch-table")
         with Horizontal(id="action-row"):
             mode_label = "Remote: ON" if self.delete_remote else "Remote: OFF"
