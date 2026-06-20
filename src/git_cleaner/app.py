@@ -1,3 +1,4 @@
+import asyncio
 import calendar as cal_mod
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
@@ -24,7 +25,14 @@ from git_cleaner.git_ops import (
     BranchInfo,
     list_branches,
     delete_branches,
+    delete_remote_branches,
     get_repo_root,
+    get_git_dir_size,
+    get_object_stats,
+    run_gc,
+    repack_objects,
+    prune_remote,
+    expire_reflog,
 )
 
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -211,6 +219,17 @@ Footer {
     height: 1;
 }
 
+#action-row {
+    height: auto;
+    margin: 0 0 0 1;
+    align: left middle;
+}
+
+#toggle-remote {
+    width: 18;
+    min-width: 18;
+}
+
 #branch-table {
     height: 1fr;
     margin: 0 1;
@@ -256,6 +275,65 @@ DataTable > .datatable--header {
     margin: 0 1;
     min-width: 10;
 }
+
+/* === Maintenance screen === */
+
+.section-title {
+    text-style: bold;
+    padding: 0 0 1 0;
+    color: $text;
+}
+
+#health-stats {
+    height: auto;
+    margin: 0 2;
+    padding: 1 2;
+    border: solid $primary 30%;
+}
+
+#health-stats .health-stat {
+    padding: 0 1;
+    height: 1;
+}
+
+#tasks-section {
+    height: auto;
+    margin: 1 2;
+}
+
+.task-row {
+    height: auto;
+    align: center middle;
+    margin: 0 0 1 0;
+}
+
+.task-button {
+    margin: 0 1 0 0;
+    min-width: 18;
+}
+
+#output-log {
+    height: 3;
+    margin: 0 2;
+    padding: 1;
+    border: solid $surface;
+    background: $surface 50%;
+    color: $text-muted;
+}
+
+#output-log.error {
+    color: $error;
+}
+
+#output-log.success {
+    color: $success;
+}
+
+#maintenance-actions {
+    height: auto;
+    margin: 1 0;
+    align: center middle;
+}
 """
 
 
@@ -264,6 +342,7 @@ class CalendarScreen(Screen):
 
     def __init__(self, repo_path: Path) -> None:
         super().__init__()
+        self.title = "Git Cleaner"
         self.repo_path = repo_path
         self.from_date = None
         self.until_date = None
@@ -273,7 +352,7 @@ class CalendarScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="main-content"):
-            yield Label("Git Branch Cleaner", id="title")
+            yield Label("Git Cleaner", id="title")
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Horizontal(id="date-display"):
@@ -327,6 +406,7 @@ class CalendarScreen(Screen):
 
             with Horizontal(classes="center-row"):
                 yield Button("Load Branches", variant="primary", id="load-btn")
+                yield Button("Maintenance", variant="default", id="maintenance-btn")
             yield Static(id="error-msg")
         yield Footer()
 
@@ -347,6 +427,8 @@ class CalendarScreen(Screen):
             await self.recompose()
         elif btn_id == "load-btn":
             await self._load_branches()
+        elif btn_id == "maintenance-btn":
+            await self.app.push_screen(MaintenanceScreen(self.repo_path))
         elif isinstance(event.button, DayButton):
             day_num = event.button.day_num
             selected = date(
@@ -395,17 +477,221 @@ class CalendarScreen(Screen):
         )
 
 
+# ─── Task key → label mapping for maintenance buttons ──────────────────────
+
+_TASK_MAP: dict[str, tuple[str, str]] = {
+    "gc-btn": ("gc", "Git GC"),
+    "gc-agg-btn": ("gc-agg", "GC Aggressive"),
+    "repack-btn": ("repack", "Repack"),
+    "prune-btn": ("prune", "Prune Remote"),
+    "reflog-btn": ("reflog", "Expire Reflog"),
+    "all-btn": ("all", "Run All"),
+}
+
+
+class MaintenanceScreen(Screen):
+    """Screen for git repository health display and maintenance tasks."""
+
+    BINDINGS = [
+        Binding("escape", "go_back", "Back"),
+        Binding("r", "refresh_health", "Refresh health"),
+    ]
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        self._running = False
+        super().__init__()
+        self.title = "Git Cleaner"
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Vertical(id="main-content"):
+            yield Label("Git Maintenance", id="title")
+            yield Label(f"Repository: {self.repo_path}", id="repo-label")
+
+            with Vertical(id="health-stats"):
+                yield Label("Repository Health", classes="section-title")
+                yield Label("", id="stat-git-size", classes="health-stat")
+                yield Label("", id="stat-loose", classes="health-stat")
+                yield Label("", id="stat-packed", classes="health-stat")
+                yield Label("", id="stat-garbage", classes="health-stat")
+                yield Label("", id="stat-prune", classes="health-stat")
+                with Horizontal(classes="center-row"):
+                    yield Button("Refresh", id="refresh-health", variant="default")
+
+            with Vertical(id="tasks-section"):
+                yield Label("Maintenance Tasks", classes="section-title")
+                with Vertical(id="task-buttons"):
+                    with Horizontal(classes="task-row"):
+                        yield Button("Git GC", id="gc-btn", classes="task-button", variant="primary")
+                        yield Button("GC Aggressive", id="gc-agg-btn", classes="task-button", variant="warning")
+                        yield Button("Repack", id="repack-btn", classes="task-button", variant="primary")
+                    with Horizontal(classes="task-row"):
+                        yield Button("Prune Remote", id="prune-btn", classes="task-button", variant="default")
+                        yield Button("Expire Reflog", id="reflog-btn", classes="task-button", variant="default")
+                        yield Button("Run All", id="all-btn", classes="task-button", variant="error")
+
+            yield Label("Output", classes="section-title")
+            yield Static("Click a task to run", id="output-log")
+
+            with Horizontal(id="maintenance-actions"):
+                yield Button("Back", id="back-btn", variant="default")
+
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._update_health()
+
+    # ── Health stats ────────────────────────────────────────────────────
+
+    def _update_health(self) -> None:
+        try:
+            git_size = get_git_dir_size(self.repo_path)
+            stats = get_object_stats(self.repo_path)
+        except RuntimeError as e:
+            self._set_output(f"Error: {e}", error=True)
+            return
+
+        self.query_one("#stat-git-size", Label).update(f".git size: {git_size}")
+
+        count = stats.get("count", "0")
+        size = stats.get("size", "0")
+        in_pack = stats.get("in-pack", "0")
+        packs = stats.get("packs", "0")
+        size_pack = stats.get("size-pack", "0")
+        garbage = stats.get("garbage", "0")
+        size_garbage = stats.get("size-garbage", "0")
+        prune_packable = stats.get("prune-packable", "0")
+
+        try:
+            sz = int(size)
+            loose_extra = f" ({sz} KiB)" if sz else ""
+        except ValueError:
+            loose_extra = ""
+        self.query_one("#stat-loose", Label).update(
+            f"Loose objects: {count}{loose_extra}"
+        )
+
+        try:
+            sp = int(size_pack)
+            pk = int(packs)
+            packed_extra = f" ({sp} KiB in {pk} packs)" if pk else ""
+        except ValueError:
+            packed_extra = ""
+        self.query_one("#stat-packed", Label).update(
+            f"Packed objects: {in_pack}{packed_extra}"
+        )
+
+        try:
+            sg = int(size_garbage)
+            garbage_extra = f" ({sg} KiB)" if sg else ""
+        except ValueError:
+            garbage_extra = ""
+        self.query_one("#stat-garbage", Label).update(
+            f"Garbage objects: {garbage}{garbage_extra}"
+        )
+
+        self.query_one("#stat-prune", Label).update(
+            f"Prune-packable: {prune_packable}"
+        )
+
+    def action_refresh_health(self) -> None:
+        self._update_health()
+
+    # ── Task execution ──────────────────────────────────────────────────
+
+    def _set_output(self, text: str, error: bool = False) -> None:
+        out = self.query_one("#output-log", Static)
+        out.update(text)
+        out.remove_class("error", "success")
+        out.add_class("error" if error else "success")
+
+    def _set_buttons_enabled(self, enabled: bool) -> None:
+        for btn_id in _TASK_MAP:
+            try:
+                self.query_one(f"#{btn_id}", Button).disabled = not enabled
+            except Exception:
+                pass
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id
+
+        if btn_id in _TASK_MAP:
+            if self._running:
+                return
+            task_key, task_label = _TASK_MAP[btn_id]
+            await self._run_tasks(task_key, task_label)
+
+        elif btn_id == "refresh-health":
+            self._update_health()
+
+        elif btn_id == "back-btn":
+            self.app.pop_screen()
+
+    async def _run_tasks(self, task_key: str, task_label: str) -> None:
+        self._running = True
+        self._set_buttons_enabled(False)
+        self._set_output(f"Running {task_label}...")
+
+        try:
+            if task_key == "all":
+                success, msg = await asyncio.to_thread(self._run_all_tasks)
+            else:
+                success, msg = await asyncio.to_thread(self._execute_single, task_key)
+            self._set_output(msg, error=not success)
+        except Exception as e:
+            self._set_output(f"Error: {e}", error=True)
+
+        self._running = False
+        self._set_buttons_enabled(True)
+        self._update_health()
+
+    def _execute_single(self, task_key: str) -> tuple[bool, str]:
+        dispatcher = {
+            "gc": lambda: run_gc(self.repo_path),
+            "gc-agg": lambda: run_gc(self.repo_path, aggressive=True),
+            "repack": lambda: repack_objects(self.repo_path),
+            "prune": lambda: prune_remote(self.repo_path),
+            "reflog": lambda: expire_reflog(self.repo_path),
+        }
+        fn = dispatcher.get(task_key)
+        if fn is None:
+            return False, f"Unknown task: {task_key}"
+        return fn()
+
+    def _run_all_tasks(self) -> tuple[bool, str]:
+        subtasks = [
+            ("gc", run_gc),
+            ("repack", repack_objects),
+            ("prune", lambda p: prune_remote(p)),
+            ("reflog", lambda p: expire_reflog(p)),
+        ]
+        results: list[str] = []
+        all_ok = True
+        for name, fn in subtasks:
+            success, msg = fn(self.repo_path)
+            results.append(f"{'✓' if success else '✗'} {name}: {msg}")
+            if not success:
+                all_ok = False
+        return all_ok, "\n".join(results)
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
+
+
 class ConfirmationDialog(ModalScreen[bool]):
     """Modal dialog to confirm branch deletion."""
 
-    def __init__(self, branches: list[str]) -> None:
+    def __init__(self, branches: list[str], delete_remote: bool = False) -> None:
         self.branches = branches
+        self.delete_remote = delete_remote
         super().__init__()
 
     def compose(self) -> ComposeResult:
         branch_list = "\n".join(f"  • {b}" for b in self.branches)
+        scope = " locally and on remote" if self.delete_remote else ""
         yield Vertical(
-            Label(f"Delete {len(self.branches)} branch(es)?"),
+            Label(f"Delete {len(self.branches)} branch(es){scope}?"),
             Static(branch_list),
             Horizontal(
                 Button("Cancel", variant="default", id="cancel"),
@@ -430,6 +716,7 @@ class BranchListScreen(Screen):
         Binding("d", "delete_selected", "Delete selected"),
         Binding("p", "toggle_protected", "Toggle protected visibility"),
         Binding("b", "toggle_blacklisted", "Toggle blacklisted visibility"),
+        Binding("r", "toggle_remote", "Toggle remote deletion"),
         Binding("escape", "go_back", "Back"),
         Binding("ctrl+r", "refresh", "Refresh"),
     ]
@@ -445,9 +732,11 @@ class BranchListScreen(Screen):
         self.until = until
         self.show_protected = False
         self.show_blacklisted = False
+        self.delete_remote = False
         self.branches: list[BranchInfo] = []
         self.selected: set[str] = set()
         super().__init__()
+        self.title = "Git Cleaner"
 
     def compose(self) -> ComposeResult:
         range_label = (
@@ -456,6 +745,10 @@ class BranchListScreen(Screen):
         yield Header()
         yield Label(range_label, id="range-label")
         yield DataTable(id="branch-table")
+        with Horizontal(id="action-row"):
+            mode_label = "Remote: ON" if self.delete_remote else "Remote: OFF"
+            remote_variant = "primary" if self.delete_remote else "default"
+            yield Button(mode_label, id="toggle-remote", variant=remote_variant)
         yield Static(id="status-bar")
         yield Footer()
 
@@ -538,6 +831,7 @@ class BranchListScreen(Screen):
         status.update(
             f"Total: {total} | Selected: {n_selected} | "
             f"Protected: {n_protected} | Blacklisted: {n_blacklisted} | "
+            f"Remote: {'ON' if self.delete_remote else 'OFF'} | "
             f"[P]rotected: {'show' if self.show_protected else 'hide'} | "
             f"[B]lacklisted: {'show' if self.show_blacklisted else 'hide'}"
         )
@@ -568,6 +862,17 @@ class BranchListScreen(Screen):
                 self.selected.add(b.name)
         self._refresh_table()
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "toggle-remote":
+            self._toggle_remote()
+
+    def action_toggle_remote(self) -> None:
+        self._toggle_remote()
+
+    def _toggle_remote(self) -> None:
+        self.delete_remote = not self.delete_remote
+        self._refresh_table()
+
     def action_delete_selected(self) -> None:
         if not self.selected:
             return
@@ -575,20 +880,35 @@ class BranchListScreen(Screen):
         def handle_confirmation(confirmed: bool) -> None:
             if confirmed:
                 to_delete = list(self.selected)
-                failed = delete_branches(self.repo_path, to_delete)
-                if failed:
+                failed_local = delete_branches(self.repo_path, to_delete)
+                failed_remote: list[str] = []
+                if self.delete_remote:
+                    # Try remote delete only for locally-successful branches
+                    remote_targets = [n for n in to_delete if n not in failed_local]
+                    if remote_targets:
+                        failed_remote = delete_remote_branches(
+                            self.repo_path, remote_targets
+                        )
+                all_failed = list(set(failed_local + failed_remote))
+                if all_failed:
                     self.query_one("#status-bar", Static).update(
-                        f"Failed to delete: {', '.join(failed)}"
+                        f"Failed: {', '.join(all_failed)}"
                     )
                 else:
+                    parts = [f"Deleted {len(to_delete)} branch(es)"]
+                    if self.delete_remote:
+                        parts.append("(local + remote)")
                     self.query_one("#status-bar", Static).update(
-                        f"Deleted {len(to_delete)} branch(es)"
+                        " ".join(parts)
                     )
                 self.selected.clear()
                 self._load_branches()
 
         self.app.push_screen(
-            ConfirmationDialog(list(self.selected)), handle_confirmation
+            ConfirmationDialog(
+                list(self.selected), delete_remote=self.delete_remote
+            ),
+            handle_confirmation,
         )
 
     def action_toggle_protected(self) -> None:

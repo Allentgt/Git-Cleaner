@@ -3,7 +3,19 @@ import tempfile
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
-from git_cleaner.git_ops import get_repo_root, list_branches, delete_branches, BranchInfo
+from git_cleaner.git_ops import (
+    get_repo_root,
+    list_branches,
+    delete_branches,
+    delete_remote_branches,
+    BranchInfo,
+    get_git_dir_size,
+    get_object_stats,
+    run_gc,
+    repack_objects,
+    prune_remote,
+    expire_reflog,
+)
 
 
 def _init_git_repo(path: Path) -> None:
@@ -111,6 +123,20 @@ def test_delete_branches_protected_fails():
         assert "main" in failed  # can't delete checked-out branch
 
 
+def test_delete_remote_branches_fails_without_remote():
+    """delete_remote_branches should fail when there's no remote configured."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        # No remote configured, so push --delete should fail
+        failed = delete_remote_branches(repo, ["old/experiment"])
+        assert "old/experiment" in failed
+
+
 def test_branch_info_dataclass():
     dt = datetime.now(timezone.utc)
     b = BranchInfo(
@@ -124,3 +150,82 @@ def test_branch_info_dataclass():
     assert b.is_current
     assert b.is_blacklisted
     assert not b.is_protected
+
+
+# ─── Repository health & maintenance ─────────────────────────────────────────
+
+
+def test_get_git_dir_size():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        size = get_git_dir_size(repo)
+        assert isinstance(size, str)
+        assert size  # non-empty, e.g. "1.5 KB"
+
+
+def test_get_object_stats():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        stats = get_object_stats(repo)
+        assert "count" in stats
+        assert "size" in stats
+        assert "in-pack" in stats
+        assert "packs" in stats
+        assert "size-pack" in stats
+
+
+def test_run_gc():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        success, msg = run_gc(repo)
+        assert success, msg
+        assert "GC completed" in msg
+
+
+def test_run_gc_aggressive():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        success, msg = run_gc(repo, aggressive=True)
+        assert success, msg
+        assert "GC (aggressive)" in msg
+
+
+def test_repack_objects():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        # Run gc first to create pack files
+        run_gc(repo)
+        success, msg = repack_objects(repo)
+        assert success, msg
+        assert "Repack" in msg
+
+
+def test_prune_remote_fails_without_remote():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        success, msg = prune_remote(repo)
+        assert not success
+        # Should mention that origin doesn't exist or similar error
+        assert msg
+
+
+def test_expire_reflog():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        success, msg = expire_reflog(repo, days=1)
+        assert success, msg
+        assert "expired" in msg
