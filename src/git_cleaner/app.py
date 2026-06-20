@@ -334,6 +334,21 @@ DataTable > .datatable--header {
     margin: 1 0;
     align: center middle;
 }
+
+/* === Task help legend === */
+
+#help-legend {
+    height: auto;
+    margin: 0 2;
+    padding: 1 2;
+    border: dashed $surface;
+}
+
+#help-legend Label {
+    padding: 0 1;
+    height: 1;
+    color: $text-muted;
+}
 """
 
 
@@ -523,19 +538,65 @@ class MaintenanceScreen(Screen):
                 yield Label("Maintenance Tasks", classes="section-title")
                 with Vertical(id="task-buttons"):
                     with Horizontal(classes="task-row"):
-                        yield Button("Git GC", id="gc-btn", classes="task-button", variant="primary")
-                        yield Button("GC Aggressive", id="gc-agg-btn", classes="task-button", variant="warning")
-                        yield Button("Repack", id="repack-btn", classes="task-button", variant="primary")
+                        yield Button(
+                            "Git GC",
+                            id="gc-btn",
+                            classes="task-button",
+                            variant="primary",
+                            tooltip="git gc — Compress revisions, remove loose objects. Standard housekeeping.",
+                        )
+                        yield Button(
+                            "GC Aggressive",
+                            id="gc-agg-btn",
+                            classes="task-button",
+                            variant="warning",
+                            tooltip="git gc --aggressive — Deep optimization. Slower but thorough; run quarterly.",
+                        )
+                        yield Button(
+                            "Repack",
+                            id="repack-btn",
+                            classes="task-button",
+                            variant="primary",
+                            tooltip="git repack -Ad — Reorganize pack files for better delta compression.",
+                        )
                     with Horizontal(classes="task-row"):
-                        yield Button("Prune Remote", id="prune-btn", classes="task-button", variant="default")
-                        yield Button("Expire Reflog", id="reflog-btn", classes="task-button", variant="default")
-                        yield Button("Run All", id="all-btn", classes="task-button", variant="error")
+                        yield Button(
+                            "Prune Remote",
+                            id="prune-btn",
+                            classes="task-button",
+                            variant="default",
+                            tooltip="git remote prune origin — Remove stale remote-tracking refs for deleted upstream branches.",
+                        )
+                        yield Button(
+                            "Expire Reflog",
+                            id="reflog-btn",
+                            classes="task-button",
+                            variant="default",
+                            tooltip="git reflog expire --expire=90.days.ago — Trim old reflog entries to shrink .git.",
+                        )
+                        yield Button(
+                            "Run All",
+                            id="all-btn",
+                            classes="task-button",
+                            variant="error",
+                            tooltip="Run GC, Repack, Prune Remote, and Expire Reflog in sequence.",
+                        )
 
             yield Label("Output", classes="section-title")
-            yield Static("Click a task to run", id="output-log")
+            yield Static("Click a task to run — hover over a button or press ? for details", id="output-log")
 
             with Horizontal(id="maintenance-actions"):
                 yield Button("Back", id="back-btn", variant="default")
+
+            # Collapsible help legend
+            with Vertical(id="help-legend"):
+                yield Label("What each operation does:", classes="section-title")
+                yield Label("• Git GC — Standard housekeeping: compresses revisions and removes unreachable objects")
+                yield Label("• GC Aggressive — Deep re-delta: takes longer but finds better compression")
+                yield Label("• Repack — Restructures pack files without full GC overhead")
+                yield Label("• Prune Remote — Cleans up local tracking refs for branches already deleted upstream")
+                yield Label("• Expire Reflog — Drops reflog entries older than 90 days to free disk space")
+                yield Label("• Run All — Runs all the above tasks in order (takes the longest)")
 
         yield Footer()
 
