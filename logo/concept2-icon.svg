@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="72" height="72" role="img" aria-labelledby="gc2-icon-title">
+  <title id="gc2-icon-title">git-cleaner icon</title>
+  <defs>
+    <linearGradient id="gc-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square badge -->
+  <rect x="4" y="4" width="64" height="64" rx="16" fill="url(#gc-grad)"/>
+
+  <!-- Stylized "g" -->
+  <path d="M24,26 Q24,18 32,18 Q40,18 40,26 L40,38 Q40,48 32,50 Q26,51.5 22,46" stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Stylized "c" -->
+  <path d="M52,26 Q50,18 42,18 Q34,18 34,30 L34,38 Q34,50 42,50 Q50,50 52,44" stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Clean accent dot -->
+  <circle cx="38" cy="24" r="2.5" fill="url(#accent-grad)"/>
+</svg>
