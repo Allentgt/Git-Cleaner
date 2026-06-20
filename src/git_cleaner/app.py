@@ -74,6 +74,27 @@ Footer {
     color: $primary;
 }
 
+#title-banner {
+    height: auto;
+    padding: 1 2;
+    margin: 0 4 0 4;
+    border: solid $primary 30%;
+    text-align: center;
+}
+
+#title-banner .logo-text {
+    text-style: bold;
+    color: #6366F1;
+}
+
+#title-banner .logo-accent {
+    color: #10B981;
+}
+
+#title-banner .logo-sub {
+    color: $text-muted;
+}
+
 #repo-label {
     padding: 0 1;
     color: $text-muted;
@@ -419,7 +440,10 @@ class CalendarScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="main-content"):
-            yield Label("Git Cleaner", id="title")
+            with Vertical(id="title-banner"):
+                yield Label(
+                    "[bold #6366F1]git-cleaner[/]  [#10B981]│[/]  [dim]branch management & maintenance[/]",
+                )
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Horizontal(id="date-display"):
@@ -573,7 +597,10 @@ class MaintenanceScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="main-content"):
-            yield Label("Git Maintenance", id="title")
+            with Vertical(id="title-banner"):
+                yield Label(
+                    "[bold #6366F1]git-cleaner[/]  [#10B981]│[/]  [dim]maintenance & optimization[/]",
+                )
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Vertical(id="health-stats"):
@@ -924,11 +951,15 @@ class BranchListScreen(Screen):
         self.title = "Git Cleaner"
 
     def compose(self) -> ComposeResult:
+        yield Header()
         range_label = (
             f"From: {self.since or 'any'}  To: {self.until or 'any'}"
         )
-        yield Header()
-        yield Label(range_label, id="range-label")
+        with Vertical(id="title-banner"):
+            yield Label(
+                "[bold #6366F1]git-cleaner[/]  [#10B981]│[/]  [dim]branch cleanup[/]",
+            )
+            yield Label(range_label, id="range-label", classes="logo-sub")
         yield DataTable(id="branch-table")
         with Horizontal(id="action-row"):
             mode_label = "Remote: ON" if self.delete_remote else "Remote: OFF"
