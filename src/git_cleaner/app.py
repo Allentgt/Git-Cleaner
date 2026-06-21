@@ -13,6 +13,8 @@ from textual.widgets import (
     Select,
     Static,
     DataTable,
+    LoadingIndicator,
+    RichLog,
 )
 from textual.containers import Horizontal, Vertical, Grid
 from textual.binding import Binding
@@ -388,21 +390,30 @@ DataTable > .datatable--header {
     min-width: 18;
 }
 
-#output-log {
-    height: 3;
+/* === Task output (streaming log) === */
+#output-header {
+    height: auto;
+    margin: 0 2;
+    align: center middle;
+}
+
+#task-spinner {
+    display: none;
+    width: 3;
+    height: 1;
+}
+
+#task-status {
+    height: 1;
+    padding: 0 0 0 1;
+}
+
+#task-output {
+    height: 8;
     margin: 0 2;
     padding: 1;
     border: solid $surface;
     background: $surface 50%;
-    color: $text-muted;
-}
-
-#output-log.error {
-    color: $error;
-}
-
-#output-log.success {
-    color: $success;
 }
 
 #maintenance-actions {
@@ -729,7 +740,10 @@ class MaintenanceScreen(Screen):
                         )
 
             yield Label("Output", classes="section-title")
-            yield Static("Click a task to run — hover over a button or press ? for details", id="output-log")
+            with Horizontal(id="output-header"):
+                yield LoadingIndicator(id="task-spinner")
+                yield Label("", id="task-status")
+            yield RichLog(id="task-output", highlight=True, markup=True, max_lines=100)
 
             with Horizontal(id="maintenance-actions"):
                 yield Button("Back", id="back-btn", variant="default")
@@ -870,11 +884,27 @@ class MaintenanceScreen(Screen):
 
     # ── Task execution ──────────────────────────────────────────────────
 
-    def _set_output(self, text: str, error: bool = False) -> None:
-        out = self.query_one("#output-log", Static)
-        out.update(text)
-        out.remove_class("error", "success")
-        out.add_class("error" if error else "success")
+    # ── Output helpers ──────────────────────────────────────────────────
+
+    def _show_running(self, label: str) -> None:
+        self.query_one("#task-spinner", LoadingIndicator).display = True
+        self.query_one("#task-status", Label).update(f"Running {label}…")
+        self.query_one("#task-output", RichLog).clear()
+
+    def _show_done(self, msg: str, error: bool = False) -> None:
+        self.query_one("#task-spinner", LoadingIndicator).display = False
+        self.query_one("#task-status", Label).update(msg)
+        if error:
+            self.query_one("#task-status", Label).styles.color = "#FF4444"
+        else:
+            self.query_one("#task-status", Label).styles.color = ""
+
+    def _on_output(self, line: str) -> None:
+        """Thread‑safe output callback — forward to RichLog on the event loop."""
+        self.app.call_from_thread(self._append_output, line)
+
+    async def _append_output(self, line: str) -> None:
+        self.query_one("#task-output", RichLog).write(line)
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
         for btn_id in _TASK_MAP:
@@ -901,44 +931,53 @@ class MaintenanceScreen(Screen):
     async def _run_tasks(self, task_key: str, task_label: str) -> None:
         self._running = True
         self._set_buttons_enabled(False)
-        self._set_output(f"Running {task_label}...")
+        self._show_running(task_label)
 
         try:
             if task_key == "all":
-                success, msg = await asyncio.to_thread(self._run_all_tasks)
+                success, msg = await asyncio.to_thread(
+                    self._run_all_tasks, self._on_output
+                )
             else:
-                success, msg = await asyncio.to_thread(self._execute_single, task_key)
-            self._set_output(msg, error=not success)
+                success, msg = await asyncio.to_thread(
+                    self._execute_single, task_key, self._on_output
+                )
+            self._show_done(msg, error=not success)
         except Exception as e:
-            self._set_output(f"Error: {e}", error=True)
+            self._show_done(f"Error: {e}", error=True)
 
         self._running = False
         self._set_buttons_enabled(True)
         self._update_health()
 
-    def _execute_single(self, task_key: str) -> tuple[bool, str]:
+    def _execute_single(
+        self, task_key: str, on_output
+    ) -> tuple[bool, str]:
         dispatcher = {
-            "gc": lambda: run_gc(self.repo_path),
-            "gc-agg": lambda: run_gc(self.repo_path, aggressive=True),
-            "repack": lambda: repack_objects(self.repo_path),
-            "prune": lambda: prune_remote(self.repo_path),
-            "reflog": lambda: expire_reflog(self.repo_path),
+            "gc": lambda: run_gc(self.repo_path, on_output=on_output),
+            "gc-agg": lambda: run_gc(
+                self.repo_path, aggressive=True, on_output=on_output
+            ),
+            "repack": lambda: repack_objects(self.repo_path, on_output=on_output),
+            "prune": lambda: prune_remote(self.repo_path, on_output=on_output),
+            "reflog": lambda: expire_reflog(self.repo_path, on_output=on_output),
         }
         fn = dispatcher.get(task_key)
         if fn is None:
             return False, f"Unknown task: {task_key}"
         return fn()
 
-    def _run_all_tasks(self) -> tuple[bool, str]:
+    def _run_all_tasks(self, on_output) -> tuple[bool, str]:
         subtasks = [
-            ("gc", run_gc),
-            ("repack", repack_objects),
-            ("prune", lambda p: prune_remote(p)),
-            ("reflog", lambda p: expire_reflog(p)),
+            ("GC", run_gc),
+            ("Repack", repack_objects),
+            ("Prune", lambda p: prune_remote(p, on_output=on_output)),
+            ("Reflog", lambda p: expire_reflog(p, on_output=on_output)),
         ]
         results: list[str] = []
         all_ok = True
         for name, fn in subtasks:
+            on_output(f"\n── {name} ──\n")
             success, msg = fn(self.repo_path)
             results.append(f"{'✓' if success else '✗'} {name}: {msg}")
             if not success:
