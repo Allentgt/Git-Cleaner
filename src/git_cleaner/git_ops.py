@@ -1,5 +1,6 @@
 import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -157,87 +158,127 @@ def get_object_stats(repo_path: Path) -> dict[str, str]:
     return stats
 
 
+def _run_cmd(
+    cmd: list[str],
+    cwd: Path,
+    timeout: int,
+    on_output: Callable[[str], None] | None = None,
+) -> tuple[int, str]:
+    """Run a command, optionally streaming stdout/stderr line by line.
+
+    When *on_output* is provided, the command uses ``Popen`` so output flows
+    to the callback in real time.  When *on_output* is ``None`` (default) it
+    falls back to the simpler ``subprocess.run``.
+
+    Returns ``(returncode, stderr_text)``.
+    """
+    stderr_lines: list[str] = []
+
+    if on_output is None:
+        # ── Non‑streaming (keeps existing behaviour) ────────────────────
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout
+            )
+            if result.stderr:
+                stderr_lines.append(result.stderr.strip())
+            return result.returncode, "\n".join(stderr_lines)
+        except subprocess.TimeoutExpired:
+            return -1, f"Command timed out after {timeout}s"
+
+    # ── Streaming ──────────────────────────────────────────────────────
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=cwd,
+        )
+        for raw in iter(proc.stdout.readline, ""):  # type: ignore[union-attr]
+            line = raw.rstrip("\n\r")
+            if not line:
+                continue
+            stderr_lines.append(line)
+            on_output(line)
+
+        proc.wait(timeout=timeout)
+        return proc.returncode, "\n".join(stderr_lines)
+
+    except subprocess.TimeoutExpired:
+        proc.kill()  # type: ignore[possibly-undefined]
+        on_output("[red]Command timed out[/]")
+        return -1, "Command timed out"
+    except FileNotFoundError:
+        on_output("[red]Git command not found[/]")
+        return -1, "Git command not found"
+
+
 def run_gc(
     repo_path: Path,
     aggressive: bool = False,
     timeout: int = 300,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Run ``git gc`` (optionally ``--aggressive``).
+
+    When *on_output* is provided, stdout/stderr is streamed line by line.
 
     Returns ``(success, message)``.
     """
     cmd = ["git", "gc"]
     if aggressive:
         cmd.append("--aggressive")
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, cwd=repo_path, timeout=timeout
-        )
-        if result.returncode == 0:
-            label = "GC (aggressive)" if aggressive else "GC"
-            return True, f"{label} completed"
-        return False, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return False, f"GC timed out after {timeout}s"
+    rc, stderr = _run_cmd(cmd, repo_path, timeout, on_output=on_output)
+    if rc == 0:
+        label = "GC (aggressive)" if aggressive else "GC"
+        return True, f"{label} completed"
+    return False, stderr.strip() if stderr else "GC failed"
 
 
 def repack_objects(
     repo_path: Path,
     timeout: int = 300,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Run ``git repack -Ad`` to optimize pack files."""
-    try:
-        result = subprocess.run(
-            ["git", "repack", "-Ad"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-            timeout=timeout,
-        )
-        if result.returncode == 0:
-            return True, "Repack completed"
-        return False, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return False, f"Repack timed out after {timeout}s"
+    rc, stderr = _run_cmd(
+        ["git", "repack", "-Ad"], repo_path, timeout, on_output=on_output
+    )
+    if rc == 0:
+        return True, "Repack completed"
+    return False, stderr.strip() if stderr else "Repack failed"
 
 
 def prune_remote(
     repo_path: Path,
     remote: str = "origin",
     timeout: int = 30,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Run ``git remote prune <remote>`` to clean stale remote-tracking refs."""
-    try:
-        result = subprocess.run(
-            ["git", "remote", "prune", remote],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-            timeout=timeout,
-        )
-        if result.returncode == 0:
-            return True, f"Remote '{remote}' pruned"
-        return False, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return False, f"Prune timed out after {timeout}s"
+    rc, stderr = _run_cmd(
+        ["git", "remote", "prune", remote], repo_path, timeout, on_output=on_output
+    )
+    if rc == 0:
+        return True, f"Remote '{remote}' pruned"
+    return False, stderr.strip() if stderr else "Prune failed"
 
 
 def expire_reflog(
     repo_path: Path,
     days: int = 90,
     timeout: int = 60,
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Expire reflog entries older than *days* days."""
-    try:
-        result = subprocess.run(
-            ["git", "reflog", "expire", f"--expire={days}.days.ago", "--all"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-            timeout=timeout,
-        )
-        if result.returncode == 0:
-            return True, f"Reflog entries >{days}d expired"
-        return False, result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return False, f"Reflog expire timed out after {timeout}s"
+    rc, stderr = _run_cmd(
+        ["git", "reflog", "expire", f"--expire={days}.days.ago", "--all"],
+        repo_path,
+        timeout,
+        on_output=on_output,
+    )
+    if rc == 0:
+        return True, f"Reflog entries >{days}d expired"
+    return False, stderr.strip() if stderr else "Reflog expire failed"
