@@ -10,17 +10,20 @@ from textual.widgets import (
     Footer,
     Button,
     Label,
+    Select,
     Static,
     DataTable,
 )
 from textual.containers import Horizontal, Vertical, Grid
 from textual.binding import Binding
 
-from git_cleaner.logo import SLIM_LOGO
+from git_cleaner.logo import CLEAN_LOGO
 from git_cleaner.config import (
     get_protected_patterns,
     get_blacklist_patterns,
+    load_theme,
     matches_any,
+    save_theme,
 )
 from git_cleaner.git_ops import (
     BranchInfo,
@@ -77,7 +80,7 @@ Footer {
 
 #title-banner {
     height: auto;
-    padding: 1 2;
+    padding: 0 2;
     margin: 0 4 0 4;
     border: solid $primary 30%;
     text-align: center;
@@ -87,7 +90,7 @@ Footer {
 #ascii-logo {
     text-style: bold;
     color: #10B981;
-    height: 2;
+    height: 5;
     width: 100%;
     margin: 0;
     padding: 0;
@@ -104,7 +107,7 @@ Footer {
 /* === Date display row === */
 #date-display {
     height: auto;
-    margin: 0 0 1 0;
+    margin: 0;
     align: center middle;
     background: $surface;
     padding: 0 1;
@@ -125,23 +128,32 @@ Footer {
     text-style: bold;
 }
 
-/* === Calendar navigation === */
-#cal-nav {
+/* === Calendar controls row (mode buttons + month/year dropdowns) === */
+#cal-controls {
     height: auto;
-    margin: 1 0 0 0;
+    width: 64;
     align: center middle;
 }
 
-#cal-prev, #cal-next {
-    width: 5;
-    min-width: 5;
+#select-mode {
+    height: auto;
+    margin: 0;
+    align: center middle;
 }
 
-.cal-label {
-    width: 22;
-    text-align: center;
-    text-style: bold;
-    padding: 0 1;
+#cal-nav {
+    height: auto;
+    margin: 0;
+    align: center middle;
+}
+
+#month-select, #year-select {
+    width: 15;
+    margin: 0;
+}
+
+#cal-controls-spacer {
+    width: 2;
 }
 
 /* === Day-of-week headers === */
@@ -152,7 +164,7 @@ Footer {
 }
 
 .dow-label {
-    width: 9;
+    width: 8;
     text-align: center;
     color: $text-muted;
     text-style: bold;
@@ -161,16 +173,15 @@ Footer {
 /* === Calendar day grid === */
 #cal-grid {
     grid-size: 7;
-    grid-gutter: 0;
-    width: 72;
+    grid-gutter: 1;
+    width: 64;
     height: auto;
     align: center middle;
 }
 
 .day {
-    width: 10;
+    width: 8;
     height: 3;
-    margin: 0;
     border: tall $surface;
 }
 
@@ -179,7 +190,7 @@ Footer {
 }
 
 .day-blank {
-    width: 10;
+    width: 8;
     height: 3;
 }
 
@@ -206,17 +217,10 @@ Footer {
     height: auto;
     width: 100%;
 }
-
 /* === Mode toggle buttons === */
-#select-mode {
-    height: auto;
-    margin: 1 0;
-    align: center middle;
-}
-
 #mode-from, #mode-until {
-    margin: 0 1;
-    min-width: 18;
+    margin: 0;
+    min-width: 14;
 }
 
 /* === Load button === */
@@ -424,94 +428,137 @@ DataTable > .datatable--header {
 """
 
 
-class CalendarScreen(Screen):
-    """Screen with an interactive calendar date picker."""
+class CalendarContent(Vertical):
+    """Panel that holds all calendar content that changes on navigation.
 
-    def __init__(self, repo_path: Path) -> None:
-        super().__init__()
-        self.title = "Git Cleaner"
-        self.repo_path = repo_path
-        self.from_date = None
-        self.until_date = None
-        self.view_date = date.today().replace(day=1)
-        self._date_mode = "from"
+    Recomposing this panel avoids remounting Header/Footer/Screen chrome.
+    """
+
+    def __init__(self, screen: Screen) -> None:
+        super().__init__(id="main-content")
+        self._screen = screen
+
+    # ── Screen state proxies ──────────────────────────────────────────────
+
+    @property
+    def repo_path(self) -> Path: return self._screen.repo_path  # type: ignore[return-value]
+
+    @property
+    def from_date(self) -> date | None: return self._screen.from_date  # type: ignore[return-value]
+
+    @from_date.setter
+    def from_date(self, v: date | None) -> None: self._screen.from_date = v  # type: ignore[assignment]
+
+    @property
+    def until_date(self) -> date | None: return self._screen.until_date  # type: ignore[return-value]
+
+    @until_date.setter
+    def until_date(self, v: date | None) -> None: self._screen.until_date = v  # type: ignore[assignment]
+
+    @property
+    def view_date(self) -> date: return self._screen.view_date  # type: ignore[return-value]
+
+    @view_date.setter
+    def view_date(self, v: date) -> None: self._screen.view_date = v  # type: ignore[assignment]
+
+    @property
+    def _date_mode(self) -> str: return self._screen._date_mode  # type: ignore[return-value]
+
+    @_date_mode.setter
+    def _date_mode(self, v: str) -> None: self._screen._date_mode = v  # type: ignore[assignment]
+
+    # ── Compose ───────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with Vertical(id="main-content"):
-            with Vertical(id="title-banner"):
-                yield Static(SLIM_LOGO, id="ascii-logo")
-            yield Label(f"Repository: {self.repo_path}", id="repo-label")
+        with Vertical(id="title-banner"):
+            yield Static(CLEAN_LOGO, id="ascii-logo")
+        yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
-            with Horizontal(id="date-display"):
-                from_text = self.from_date.isoformat() if self.from_date else "Not set"
-                until_text = self.until_date.isoformat() if self.until_date else "Not set"
-                yield Label("From: ", id="from-label")
-                yield Label(from_text, id="from-date-label", classes="date-val")
-                yield Label("  Until: ", id="until-label")
-                yield Label(until_text, id="until-date-label", classes="date-val")
-
-            with Horizontal(id="cal-nav"):
-                yield Button("<", id="cal-prev")
-                yield Label(
-                    self.view_date.strftime("%B %Y"), id="cal-month", classes="cal-label"
-                )
-                yield Button(">", id="cal-next")
-
-            with Horizontal(id="cal-dow"):
-                for d in DOW:
-                    yield Label(d, classes="dow-label")
-
-            with Horizontal(classes="center-row"):
-                with Grid(id="cal-grid"):
-                    cal = cal_mod.monthcalendar(
-                        self.view_date.year, self.view_date.month
+        with Horizontal(classes="center-row"):
+            with Horizontal(id="cal-controls"):
+                with Horizontal(id="select-mode"):
+                    mode_from_variant = "primary" if self._date_mode == "from" else "default"
+                    mode_until_variant = "primary" if self._date_mode == "until" else "default"
+                    yield Button("Set From Date", id="mode-from", variant=mode_from_variant)
+                    yield Button("Set Until Date", id="mode-until", variant=mode_until_variant)
+                yield Label("  ", id="cal-controls-spacer")
+                with Horizontal(id="cal-nav"):
+                    yield Select(
+                        [(cal_mod.month_name[i], i) for i in range(1, 13)],
+                        id="month-select",
+                        value=self.view_date.month,
+                        prompt="Month",
                     )
-                    for week in cal:
-                        for day_num in week:
-                            if day_num == 0:
-                                yield Button("", disabled=True, classes="day-blank")
-                            else:
-                                day = date(self.view_date.year, self.view_date.month, day_num)
-                                btn = DayButton(day_num, classes="day")
-                                if day == self.from_date:
-                                    btn.add_class("selected-from")
-                                if day == self.until_date:
-                                    btn.add_class("selected-until")
-                                if (
-                                    self.from_date
-                                    and self.until_date
-                                    and self.from_date < day < self.until_date
-                                ):
-                                    btn.add_class("selected-range")
-                                yield btn
+                    yield Select(
+                        [
+                            (str(y), y)
+                            for y in range(self.view_date.year - 10, self.view_date.year + 3)
+                        ],
+                        id="year-select",
+                        value=self.view_date.year,
+                        prompt="Year",
+                    )
 
-            with Horizontal(id="select-mode"):
-                mode_from_variant = "primary" if self._date_mode == "from" else "default"
-                mode_until_variant = "primary" if self._date_mode == "until" else "default"
-                yield Button("Set From Date", id="mode-from", variant=mode_from_variant)
-                yield Button("Set Until Date", id="mode-until", variant=mode_until_variant)
+        with Horizontal(id="date-display"):
+            from_text = self.from_date.isoformat() if self.from_date else "Not set"
+            until_text = self.until_date.isoformat() if self.until_date else "Not set"
+            yield Label("From: ", id="from-label")
+            yield Label(from_text, id="from-date-label", classes="date-val")
+            yield Label("  Until: ", id="until-label")
+            yield Label(until_text, id="until-date-label", classes="date-val")
 
-            with Horizontal(classes="center-row"):
-                yield Button("Load Branches", variant="primary", id="load-btn")
-                yield Button("Maintenance", variant="default", id="maintenance-btn")
-            yield Static(id="error-msg")
-        yield Footer()
+        with Horizontal(id="cal-dow"):
+            for d in DOW:
+                yield Label(d, classes="dow-label")
+
+        with Horizontal(classes="center-row"):
+            with Grid(id="cal-grid"):
+                cal = cal_mod.monthcalendar(self.view_date.year, self.view_date.month)
+                for week in cal:
+                    for day_num in week:
+                        if day_num == 0:
+                            yield Button("", disabled=True, classes="day-blank")
+                        else:
+                            day = date(self.view_date.year, self.view_date.month, day_num)
+                            btn = DayButton(day_num, classes="day")
+                            if day == self.from_date:
+                                btn.add_class("selected-from")
+                            if day == self.until_date:
+                                btn.add_class("selected-until")
+                            if (
+                                self.from_date
+                                and self.until_date
+                                and self.from_date < day < self.until_date
+                            ):
+                                btn.add_class("selected-range")
+                            yield btn
+
+        with Horizontal(classes="center-row"):
+            yield Button("Load Branches", variant="primary", id="load-btn")
+            yield Button("Maintenance", variant="default", id="maintenance-btn")
+        yield Static(id="error-msg")
+
+    # ── Handlers ──────────────────────────────────────────────────────────
+
+    async def on_select_changed(self, event: Select.Changed) -> None:
+        event.stop()
+        select_id = event.select.id
+        if select_id == "month-select":
+            new_month = event.value
+            max_day = cal_mod.monthrange(self.view_date.year, new_month)[1]
+            self.view_date = self.view_date.replace(month=new_month, day=min(self.view_date.day, max_day))
+        elif select_id == "year-select":
+            new_year = event.value
+            max_day = cal_mod.monthrange(new_year, self.view_date.month)[1]
+            self.view_date = self.view_date.replace(year=new_year, day=min(self.view_date.day, max_day))
+        # Defer recompose so Select dropdown overlay closes first
+        self.set_timer(0, self.recompose)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
 
-        if btn_id == "cal-prev":
-            self.view_date = (self.view_date.replace(day=1) - timedelta(days=1)).replace(day=1)
-            await self.recompose()
-        elif btn_id == "cal-next":
-            self.view_date = (self.view_date.replace(day=28) + timedelta(days=7)).replace(day=1)
-            await self.recompose()
-        elif btn_id == "mode-from":
-            self._date_mode = "from"
-            await self.recompose()
-        elif btn_id == "mode-until":
-            self._date_mode = "until"
+        if btn_id in ("mode-from", "mode-until"):
+            self._date_mode = "from" if btn_id == "mode-from" else "until"
             await self.recompose()
         elif btn_id == "load-btn":
             await self._load_branches()
@@ -519,9 +566,7 @@ class CalendarScreen(Screen):
             await self.app.push_screen(MaintenanceScreen(self.repo_path))
         elif isinstance(event.button, DayButton):
             day_num = event.button.day_num
-            selected = date(
-                self.view_date.year, self.view_date.month, day_num
-            )
+            selected = date(self.view_date.year, self.view_date.month, day_num)
             if self._date_mode == "from":
                 self.from_date = selected
                 self._date_mode = "until"
@@ -565,6 +610,24 @@ class CalendarScreen(Screen):
         )
 
 
+class CalendarScreen(Screen):
+    """Screen with an interactive calendar date picker."""
+
+    def __init__(self, repo_path: Path) -> None:
+        super().__init__()
+        self.title = "Git Cleaner"
+        self.repo_path = repo_path
+        self.from_date = None
+        self.until_date = None
+        self.view_date = date.today().replace(day=1)
+        self._date_mode = "from"
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield CalendarContent(self)
+        yield Footer()
+
+
 # ─── Task key → label mapping for maintenance buttons ──────────────────────
 
 _TASK_MAP: dict[str, tuple[str, str]] = {
@@ -595,7 +658,7 @@ class MaintenanceScreen(Screen):
         yield Header()
         with Vertical(id="main-content"):
             with Vertical(id="title-banner"):
-                yield Static(SLIM_LOGO, id="ascii-logo")
+                yield Static(CLEAN_LOGO, id="ascii-logo")
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Vertical(id="health-stats"):
@@ -951,7 +1014,7 @@ class BranchListScreen(Screen):
             f"From: {self.since or 'any'}  To: {self.until or 'any'}"
         )
         with Vertical(id="title-banner"):
-            yield Static(SLIM_LOGO, id="ascii-logo")
+            yield Static(CLEAN_LOGO, id="ascii-logo")
         yield DataTable(id="branch-table")
         with Horizontal(id="action-row"):
             mode_label = "Remote: ON" if self.delete_remote else "Remote: OFF"
@@ -1143,6 +1206,12 @@ class GitCleanerApp(App):
     def __init__(self, repo_path: Path) -> None:
         self.repo_path = repo_path
         super().__init__()
+        # Load persisted theme before mount so it applies immediately
+        self.theme = load_theme()
 
     def on_mount(self) -> None:
         self.push_screen(CalendarScreen(self.repo_path))
+
+    def watch_theme(self, old: str, new: str) -> None:
+        """Persist theme whenever it changes (e.g. via Ctrl+T toggle)."""
+        save_theme(new)
