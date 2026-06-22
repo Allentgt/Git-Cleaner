@@ -18,6 +18,20 @@ from textual.widgets import (
 )
 from textual.containers import Horizontal, Vertical, Grid
 from textual.binding import Binding
+from textual.widgets._footer import Footer as FooterBase
+
+
+class RepoFooter(FooterBase):
+    """Footer that shows repository path alongside key bindings."""
+
+    def __init__(self, repo_path: Path, *args, **kwargs):
+        self.repo_path = repo_path
+        super().__init__(*args, **kwargs)
+
+    def compose(self) -> ComposeResult:
+        # Yield repo label FIRST so it appears leftmost
+        yield Label(f"Repository: {self.repo_path}", id="footer-repo-label", classes="footer-repo-label")
+        yield from super().compose()
 
 from git_cleaner.logo import CLEAN_LOGO
 from git_cleaner.config import (
@@ -66,7 +80,7 @@ Footer {
 
 /* === Main content vertical centering === */
 #main-content {
-    align: center middle;
+    align: center top;
     height: 1fr;
     width: 100%;
 }
@@ -83,7 +97,7 @@ Footer {
 #title-banner {
     height: auto;
     padding: 0 2;
-    margin: 0 4 0 4;
+    margin: 0 2;
     border: solid $primary 30%;
     text-align: center;
     overflow-x: auto;
@@ -100,7 +114,7 @@ Footer {
 }
 
 #repo-label {
-    padding: 0 1;
+    padding: 0 1 1 1;
     color: $text-muted;
     text-align: center;
     height: 1;
@@ -313,8 +327,25 @@ DataTable > .datatable--header {
 #health-stats {
     height: auto;
     margin: 0 2;
-    padding: 1 2;
+    padding: 0 1 0 2;
     border: solid $primary 30%;
+}
+
+#health-stats-header {
+    height: auto;
+    align: center middle;
+}
+
+#health-stats-title {
+    text-style: bold;
+}
+
+#health-stats-spacer {
+    width: 1fr;
+}
+
+#refresh-health {
+    min-width: 3;
 }
 
 #health-stats .health-stat {
@@ -325,7 +356,7 @@ DataTable > .datatable--header {
 #health-status-bar {
     height: auto;
     padding: 0 1;
-    margin: 0 0 1 0;
+    margin: 0 0 0 0;
 }
 
 #health-status-label {
@@ -390,10 +421,12 @@ DataTable > .datatable--header {
     min-width: 18;
 }
 
-/* === Task output (streaming log) === */
-#output-header {
+/* === Status bar (always visible above task buttons) === */
+#task-status-bar {
     height: auto;
-    margin: 0 2;
+    margin: 0 2 1 2;
+    padding: 0 1;
+    border: solid $primary 30%;
     align: center middle;
 }
 
@@ -408,6 +441,7 @@ DataTable > .datatable--header {
     padding: 0 0 0 1;
 }
 
+/* === Command output log === */
 #task-output {
     height: 8;
     margin: 0 2;
@@ -435,6 +469,31 @@ DataTable > .datatable--header {
     padding: 0 1;
     height: 1;
     color: $text-muted;
+}
+
+#repo-label-bottom {
+    padding: 1 2;
+    color: $text-muted;
+    text-align: left;
+    height: 1;
+}
+
+#bottom-bar {
+    height: auto;
+    margin: 1 2 0 2;
+    align: left middle;
+    padding: 0 1;
+}
+
+#bottom-bar Button {
+    margin-left: 2;
+}
+
+.footer-repo-label {
+    color: $text-muted;
+    padding: 0 1;
+    height: 1;
+    text-align: left;
 }
 """
 
@@ -483,7 +542,7 @@ class CalendarContent(Vertical):
     def compose(self) -> ComposeResult:
         with Vertical(id="title-banner"):
             yield Static(CLEAN_LOGO, id="ascii-logo")
-        yield Label(f"Repository: {self.repo_path}", id="repo-label")
+            yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
         with Horizontal(classes="center-row"):
             with Horizontal(id="cal-controls"):
@@ -548,6 +607,8 @@ class CalendarContent(Vertical):
             yield Button("Load Branches", variant="primary", id="load-btn")
             yield Button("Maintenance", variant="default", id="maintenance-btn")
         yield Static(id="error-msg")
+        with Horizontal(id="bottom-bar"):
+            yield Label(f"Repository: {self.repo_path}", id="repo-label-bottom")
 
     # ── Handlers ──────────────────────────────────────────────────────────
 
@@ -636,7 +697,7 @@ class CalendarScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield CalendarContent(self)
-        yield Footer()
+        yield RepoFooter(self.repo_path)
 
 
 # ─── Task key → label mapping for maintenance buttons ──────────────────────
@@ -661,7 +722,7 @@ class MaintenanceScreen(Screen):
 
     def __init__(self, repo_path: Path) -> None:
         self.repo_path = repo_path
-        self._running = False
+        self._task_running = False
         super().__init__()
         self.title = "Git Cleaner"
 
@@ -670,10 +731,13 @@ class MaintenanceScreen(Screen):
         with Vertical(id="main-content"):
             with Vertical(id="title-banner"):
                 yield Static(CLEAN_LOGO, id="ascii-logo")
-            yield Label(f"Repository: {self.repo_path}", id="repo-label")
+                yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
             with Vertical(id="health-stats"):
-                yield Label("Repository Health", classes="section-title")
+                with Horizontal(id="health-stats-header"):
+                    yield Label("Repository Health", id="health-stats-title")
+                    yield Label("", id="health-stats-spacer")
+                    yield Button("⟳", id="refresh-health", variant="default", tooltip="Refresh health stats")
                 with Horizontal(id="health-status-bar"):
                     yield Label("Status:", id="health-status-label")
                     yield Label("—", id="health-status-badge")
@@ -688,8 +752,11 @@ class MaintenanceScreen(Screen):
                     yield Label("", id="reco-0", classes="reco-item")
                     yield Label("", id="reco-1", classes="reco-item")
                     yield Label("", id="reco-2", classes="reco-item")
-                with Horizontal(classes="center-row"):
-                    yield Button("Refresh", id="refresh-health", variant="default")
+
+            # ── Status bar (always visible above buttons) ──────────────
+            with Horizontal(id="task-status-bar"):
+                yield LoadingIndicator(id="task-spinner")
+                yield Label("Idle — click a task below to run", id="task-status")
 
             with Vertical(id="tasks-section"):
                 yield Label("Maintenance Tasks", classes="section-title")
@@ -739,14 +806,7 @@ class MaintenanceScreen(Screen):
                             tooltip="Run GC, Repack, Prune Remote, and Expire Reflog in sequence.",
                         )
 
-            yield Label("Output", classes="section-title")
-            with Horizontal(id="output-header"):
-                yield LoadingIndicator(id="task-spinner")
-                yield Label("", id="task-status")
             yield RichLog(id="task-output", highlight=True, markup=True, max_lines=100)
-
-            with Horizontal(id="maintenance-actions"):
-                yield Button("Back", id="back-btn", variant="default")
 
             # Collapsible help legend
             with Vertical(id="help-legend"):
@@ -758,7 +818,12 @@ class MaintenanceScreen(Screen):
                 yield Label("• Expire Reflog — Drops reflog entries older than 90 days to free disk space")
                 yield Label("• Run All — Runs all the above tasks in order (takes the longest)")
 
-        yield Footer()
+            # Repository path inline with bottom buttons
+            with Horizontal(id="bottom-bar"):
+                yield Label(f"Repository: {self.repo_path}", id="repo-label-bottom")
+                yield Button("Back", id="back-btn", variant="default")
+
+        yield RepoFooter(self.repo_path)
 
     def on_mount(self) -> None:
         self._update_health()
@@ -803,7 +868,7 @@ class MaintenanceScreen(Screen):
             git_size = get_git_dir_size(self.repo_path)
             stats = get_object_stats(self.repo_path)
         except RuntimeError as e:
-            self._set_output(f"Error: {e}", error=True)
+            self._show_done(f"Error: {e}", error=True)
             return
 
         self.query_one("#stat-git-size", Label).update(f".git size: {git_size}")
@@ -879,6 +944,21 @@ class MaintenanceScreen(Screen):
                 else:
                     item.update("")
 
+    async def _refresh_health_async(self) -> None:
+        """Refresh health stats with visual feedback."""
+        # Show immediate feedback
+        self.query_one("#task-spinner", LoadingIndicator).display = True
+        self.query_one("#task-status", Label).update("Refreshing health…")
+        
+        try:
+            # Run in thread to avoid blocking UI
+            await asyncio.to_thread(self._update_health)
+            self.query_one("#task-status", Label).update("Health refreshed")
+        except Exception as e:
+            self.query_one("#task-status", Label).update(f"Error: {e}")
+        finally:
+            self.query_one("#task-spinner", LoadingIndicator).display = False
+
     def action_refresh_health(self) -> None:
         self._update_health()
 
@@ -889,21 +969,30 @@ class MaintenanceScreen(Screen):
     def _show_running(self, label: str) -> None:
         self.query_one("#task-spinner", LoadingIndicator).display = True
         self.query_one("#task-status", Label).update(f"Running {label}…")
-        self.query_one("#task-output", RichLog).clear()
+        self.notify(f"▶ Running {label}", timeout=3)
+        rl = self.query_one("#task-output", RichLog)
+        rl.clear()
+        rl.write(f"[bold yellow]▶ Running {label}…[/]\n")
 
     def _show_done(self, msg: str, error: bool = False) -> None:
         self.query_one("#task-spinner", LoadingIndicator).display = False
-        self.query_one("#task-status", Label).update(msg)
+        status = self.query_one("#task-status", Label)
+        status.update(msg)
         if error:
-            self.query_one("#task-status", Label).styles.color = "#FF4444"
+            status.styles.color = "#FF4444"
         else:
-            self.query_one("#task-status", Label).styles.color = ""
+            # Remove any previously set color so theme default applies
+            status.styles.color = ""
+        icon = "✗" if error else "✓"
+        self.notify(f"{icon} {msg}", severity="error" if error else "information", timeout=5)
+        rl = self.query_one("#task-output", RichLog)
+        rl.write(f"[{'bold red' if error else 'bold green'}]{icon} {msg}[/]")
 
     def _on_output(self, line: str) -> None:
         """Thread‑safe output callback — forward to RichLog on the event loop."""
-        self.app.call_from_thread(self._append_output, line)
+        self.app.call_from_thread(self._write_output, line)
 
-    async def _append_output(self, line: str) -> None:
+    def _write_output(self, line: str) -> None:
         self.query_one("#task-output", RichLog).write(line)
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
@@ -916,24 +1005,30 @@ class MaintenanceScreen(Screen):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
 
-        if btn_id in _TASK_MAP:
-            if self._running:
+        # Show immediate feedback synchronously
+        try:
+            self.query_one("#task-spinner", LoadingIndicator).display = True
+            self.query_one("#task-status", Label).update(f"Running {btn_id}…")
+        except Exception:
+            pass
+
+        if btn_id == "refresh-health":
+            await self._refresh_health_async()
+        elif btn_id == "back-btn":
+            self.app.pop_screen()
+        elif btn_id in _TASK_MAP:
+            if self._task_running:
                 return
             task_key, task_label = _TASK_MAP[btn_id]
             await self._run_tasks(task_key, task_label)
 
-        elif btn_id == "refresh-health":
-            self._update_health()
-
-        elif btn_id == "back-btn":
-            self.app.pop_screen()
-
     async def _run_tasks(self, task_key: str, task_label: str) -> None:
-        self._running = True
+        self._task_running = True
         self._set_buttons_enabled(False)
-        self._show_running(task_label)
-
         try:
+            self._show_running(task_label)
+
+            # Run in thread — if this hangs, asyncio.to_thread is the culprit
             if task_key == "all":
                 success, msg = await asyncio.to_thread(
                     self._run_all_tasks, self._on_output
@@ -945,10 +1040,10 @@ class MaintenanceScreen(Screen):
             self._show_done(msg, error=not success)
         except Exception as e:
             self._show_done(f"Error: {e}", error=True)
-
-        self._running = False
-        self._set_buttons_enabled(True)
-        self._update_health()
+        finally:
+            self._task_running = False
+            self._set_buttons_enabled(True)
+            self._update_health()
 
     def _execute_single(
         self, task_key: str, on_output
@@ -969,8 +1064,8 @@ class MaintenanceScreen(Screen):
 
     def _run_all_tasks(self, on_output) -> tuple[bool, str]:
         subtasks = [
-            ("GC", run_gc),
-            ("Repack", repack_objects),
+            ("GC", lambda p: run_gc(p, on_output=on_output)),
+            ("Repack", lambda p: repack_objects(p, on_output=on_output)),
             ("Prune", lambda p: prune_remote(p, on_output=on_output)),
             ("Reflog", lambda p: expire_reflog(p, on_output=on_output)),
         ]
@@ -1060,7 +1155,9 @@ class BranchListScreen(Screen):
             remote_variant = "primary" if self.delete_remote else "default"
             yield Button(mode_label, id="toggle-remote", variant=remote_variant)
         yield Static(id="status-bar")
-        yield Footer()
+        with Horizontal(id="bottom-bar"):
+            yield Label(f"Repository: {self.repo_path}", id="repo-label-bottom")
+        yield RepoFooter(self.repo_path)
 
     def on_mount(self) -> None:
         table = self.query_one("#branch-table", DataTable)
@@ -1142,8 +1239,8 @@ class BranchListScreen(Screen):
             f"Total: {total} | Selected: {n_selected} | "
             f"Protected: {n_protected} | Blacklisted: {n_blacklisted} | "
             f"Remote: {'ON' if self.delete_remote else 'OFF'} | "
-            f"[P]rotected: {'show' if self.show_protected else 'hide'} | "
-            f"[B]lacklisted: {'show' if self.show_blacklisted else 'hide'}"
+            f"\\[P]rotected: {'show' if self.show_protected else 'hide'} | "
+            f"\\[B]lacklisted: {'show' if self.show_blacklisted else 'hide'}"
         )
 
     def action_toggle_row(self) -> None:
@@ -1167,9 +1264,16 @@ class BranchListScreen(Screen):
         self._refresh_table()
 
     def action_select_all(self) -> None:
-        for b in self.branches:
-            if not b.is_protected and not b.is_blacklisted:
-                self.selected.add(b.name)
+        selectable = {
+            b.name for b in self.branches
+            if not b.is_protected and not b.is_blacklisted
+        }
+        if self.selected & selectable:
+            # Some selectable branches are selected → deselect all selectable
+            self.selected -= selectable
+        else:
+            # None selected → select all selectable
+            self.selected |= selectable
         self._refresh_table()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -1181,6 +1285,9 @@ class BranchListScreen(Screen):
 
     def _toggle_remote(self) -> None:
         self.delete_remote = not self.delete_remote
+        btn = self.query_one("#toggle-remote", Button)
+        btn.label = "Remote: ON" if self.delete_remote else "Remote: OFF"
+        btn.variant = "primary" if self.delete_remote else "default"
         self._refresh_table()
 
     def action_delete_selected(self) -> None:
