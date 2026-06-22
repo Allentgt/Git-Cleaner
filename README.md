@@ -85,7 +85,7 @@ When both dates are set, click **Load Branches**.
 | Key | Action |
 |-----|--------|
 | `Space` | Toggle selection on focused row |
-| `a` | Select all visible unprotected, unblacklisted branches |
+| `a` | Toggle select / deselect all selectable branches |
 | `d` | Delete selected (with confirmation dialog) |
 | `r` | Toggle remote deletion on/off |
 | `p` | Toggle show/hide protected branches |
@@ -188,7 +188,7 @@ All sources merged (hardcoded defaults → global → project), with project con
 | Key | Action |
 |-----|--------|
 | `Space` | Toggle row selection |
-| `a` | Select all eligible |
+| `a` | Toggle select / deselect all eligible |
 | `d` | Delete selected |
 | `r` | Toggle remote deletion |
 | `p` | Toggle protected visibility |
