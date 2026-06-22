@@ -1,5 +1,5 @@
 [project]
-name = "git-branch-cleaner-tui"
+name = "git-cleaner-tui"
 version = "1.0.0"
 description = "TUI tool for browsing and bulk-deleting git branches"
 readme = "README.md"
@@ -8,7 +8,7 @@ dependencies = ["textual"]
 authors = [{ name = "git-cleaner" }]
 
 [project.scripts]
-git-branch-cleaner-tui = "git_cleaner.cli:main"
+git-cleaner-tui = "git_cleaner.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/git_cleaner"]

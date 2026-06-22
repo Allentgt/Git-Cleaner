@@ -21,10 +21,10 @@ Built with [Textual](https://textual.textualize.io/) and Python 3.11+.
 
 ```bash
 # Install as a global tool
-uv tool install git-branch-cleaner-tui
+uv tool install git-cleaner-tui
 
 # Run in any git repo
-git-branch-cleaner-tui
+git-cleaner-tui
 ```
 
 ### From source
@@ -33,7 +33,7 @@ git-branch-cleaner-tui
 git clone https://github.com/Allentgt/Git-Cleaner
 cd git-cleaner
 uv sync
-uv run git-branch-cleaner-tui --repo /path/to/repo
+uv run git-cleaner-tui --repo /path/to/repo
 ```
 
 ### Requirements
@@ -62,8 +62,8 @@ uv run git-branch-cleaner-tui --repo /path/to/repo
 ### 0. Start the App
 
 ```bash
-git-branch-cleaner-tui
-# or: git-branch-cleaner-tui --repo /path/to/repo
+git-cleaner-tui
+# or: git-cleaner-tui --repo /path/to/repo
 ```
 
 Opens the calendar screen. Press **Maintenance** for repo optimization, or pick dates and **Load Branches** to clean.
@@ -254,7 +254,7 @@ uv run pytest -v
 uv run pytest tests/test_config.py -v
 
 # Run the app
-uv run git-branch-cleaner-tui --repo /path/to/repo
+uv run git-cleaner-tui --repo /path/to/repo
 ```
 
 ### Test coverage
