@@ -1,6 +1,6 @@
 [project]
 name = "git-cleaner-tui"
-version = "1.0.0"
+version = "1.0.1"
 description = "TUI tool for browsing and bulk-deleting git branches"
 readme = "README.md"
 requires-python = ">=3.11"
