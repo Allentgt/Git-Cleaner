@@ -67,7 +67,7 @@ class DayButton(Button):
 
 GIT_CLEANER_CSS = """
 Screen {
-    align: center middle;
+    align: center top;
 }
 
 Header {
@@ -83,6 +83,7 @@ Footer {
     align: center top;
     height: 1fr;
     width: 100%;
+    overflow-y: auto;
 }
 
 /* === Title === */
@@ -101,6 +102,7 @@ Footer {
     border: solid $primary 30%;
     text-align: center;
     overflow-x: auto;
+    max-width: 100%;
 }
 
 #ascii-logo {
@@ -111,6 +113,7 @@ Footer {
     margin: 0;
     padding: 0;
     text-align: center;
+    overflow-x: auto;
 }
 
 #repo-label {
@@ -127,7 +130,7 @@ Footer {
     align: center middle;
     background: $surface;
     padding: 0 1;
-    min-width: 40;
+    max-width: 100%;
 }
 
 .date-val {
@@ -147,7 +150,8 @@ Footer {
 /* === Calendar controls row (mode buttons + month/year dropdowns) === */
 #cal-controls {
     height: auto;
-    width: 64;
+    width: auto;
+    max-width: 100%;
     align: center middle;
 }
 
@@ -164,12 +168,13 @@ Footer {
 }
 
 #month-select, #year-select {
-    width: 15;
+    width: 14;
+    min-width: 12;
     margin: 0;
 }
 
 #cal-controls-spacer {
-    width: 2;
+    width: 1;
 }
 
 /* === Day-of-week headers === */
@@ -180,7 +185,7 @@ Footer {
 }
 
 .dow-label {
-    width: 8;
+    width: 1fr;
     text-align: center;
     color: $text-muted;
     text-style: bold;
@@ -190,13 +195,15 @@ Footer {
 #cal-grid {
     grid-size: 7;
     grid-gutter: 1;
-    width: 64;
+    width: auto;
+    max-width: 100%;
     height: auto;
     align: center middle;
 }
 
 .day {
-    width: 8;
+    width: 1fr;
+    min-width: 6;
     height: 3;
     border: tall $surface;
 }
@@ -206,7 +213,8 @@ Footer {
 }
 
 .day-blank {
-    width: 8;
+    width: 1fr;
+    min-width: 6;
     height: 3;
 }
 
@@ -236,7 +244,7 @@ Footer {
 /* === Mode toggle buttons === */
 #mode-from, #mode-until {
     margin: 0;
-    min-width: 14;
+    min-width: 12;
 }
 
 /* === Load button === */
@@ -263,6 +271,7 @@ Footer {
     height: auto;
     margin: 0 0 0 1;
     align: left middle;
+    width: 100%;
 }
 
 #toggle-remote {
@@ -273,6 +282,7 @@ Footer {
 #branch-table {
     height: 1fr;
     margin: 0 1;
+    width: 100%;
 }
 
 DataTable {
@@ -292,7 +302,9 @@ DataTable > .datatable--header {
 
 /* === Confirmation dialog === */
 #dialog {
-    width: 60;
+    width: auto;
+    min-width: 40;
+    max-width: 70;
     height: auto;
     border: solid $primary;
     padding: 1 2;
@@ -414,11 +426,12 @@ DataTable > .datatable--header {
     height: auto;
     align: center middle;
     margin: 0 0 1 0;
+    overflow-x: auto;
 }
 
 .task-button {
     margin: 0 1 0 0;
-    min-width: 18;
+    min-width: 16;
 }
 
 /* === Status bar (always visible above task buttons) === */
@@ -443,7 +456,8 @@ DataTable > .datatable--header {
 
 /* === Command output log === */
 #task-output {
-    height: 8;
+    height: 6;
+    max-height: 30;
     margin: 0 2;
     padding: 1;
     border: solid $surface;
@@ -463,6 +477,7 @@ DataTable > .datatable--header {
     margin: 0 2;
     padding: 1 2;
     border: dashed $surface;
+    overflow-x: auto;
 }
 
 #help-legend Label {
