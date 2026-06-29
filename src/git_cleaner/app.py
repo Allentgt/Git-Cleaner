@@ -108,7 +108,7 @@ Footer {
 #ascii-logo {
     text-style: bold;
     color: #10B981;
-    height: 5;
+    height: 4;
     width: 100%;
     margin: 0;
     padding: 0;
