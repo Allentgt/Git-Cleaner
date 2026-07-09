@@ -1,8 +1,8 @@
 import asyncio
-import calendar as cal_mod
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
+from textual import on
 from textual.app import App, ComposeResult
 from textual.screen import Screen, ModalScreen
 from textual.widgets import (
@@ -10,15 +10,15 @@ from textual.widgets import (
     Footer,
     Button,
     Label,
-    Select,
     Static,
     DataTable,
     LoadingIndicator,
     RichLog,
 )
-from textual.containers import Horizontal, Vertical, Grid
+from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
 from textual.widgets._footer import Footer as FooterBase
+from textual_timepiece.pickers import DateRangePicker
 
 
 class RepoFooter(FooterBase):
@@ -54,16 +54,6 @@ from git_cleaner.git_ops import (
     prune_remote,
     expire_reflog,
 )
-
-DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-
-class DayButton(Button):
-    """A button representing a day in the calendar."""
-
-    def __init__(self, day_num: int, **kwargs) -> None:
-        self.day_num = day_num
-        super().__init__(str(day_num), **kwargs)
 
 GIT_CLEANER_CSS = """
 Screen {
@@ -123,116 +113,12 @@ Footer {
     height: 1;
 }
 
-/* === Date display row === */
-#date-display {
-    height: auto;
-    margin: 0;
-    align: center middle;
-    background: $surface;
-    padding: 0 1;
-    max-width: 100%;
-}
-
-.date-val {
-    padding: 0 2 0 0;
-}
-
-#from-date-label {
-    color: $secondary;
-    text-style: bold;
-}
-
-#until-date-label {
-    color: $accent;
-    text-style: bold;
-}
-
-/* === Calendar controls row (mode buttons + month/year dropdowns) === */
-#cal-controls {
-    height: auto;
-    width: auto;
-    max-width: 100%;
-    align: center middle;
-}
-
-#select-mode {
-    height: auto;
-    margin: 0;
-    align: center middle;
-}
-
-#cal-nav {
-    height: auto;
-    margin: 0;
-    align: center middle;
-}
-
-#month-select, #year-select {
-    width: 14;
-    min-width: 12;
-    margin: 0;
-}
-
-#cal-controls-spacer {
-    width: 1;
-}
-
-/* === Day-of-week headers === */
-#cal-dow {
-    height: auto;
-    align: center middle;
-    margin: 0 0;
-}
-
-.dow-label {
-    width: 1fr;
-    text-align: center;
+/* === Date range picker labels === */
+#lbl-from, #lbl-until {
     color: $text-muted;
-    text-style: bold;
-}
-
-/* === Calendar day grid === */
-#cal-grid {
-    grid-size: 7;
-    grid-gutter: 1;
-    width: auto;
-    max-width: 100%;
-    height: auto;
-    align: center middle;
-}
-
-.day {
-    width: 1fr;
-    min-width: 6;
-    height: 3;
-    border: tall $surface;
-}
-
-.day:hover {
-    border: tall $primary 50%;
-}
-
-.day-blank {
-    width: 1fr;
-    min-width: 6;
-    height: 3;
-}
-
-.day.selected-from {
-    background: $secondary 35%;
-    border: tall $secondary;
-    color: $text;
-}
-
-.day.selected-until {
-    background: $accent 35%;
-    border: tall $accent;
-    color: $text;
-}
-
-.day.selected-range {
-    background: $primary 20%;
-    border: tall $primary 30%;
+    width: 6;
+    text-align: right;
+    padding: 0 1 0 0;
 }
 
 /* === Centering wrapper === */
@@ -241,15 +127,19 @@ Footer {
     height: auto;
     width: 100%;
 }
-/* === Mode toggle buttons === */
-#mode-from, #mode-until {
-    margin: 0;
-    min-width: 12;
+
+#date-picker {
+    margin: 1 0 0 0;
 }
 
 /* === Load button === */
 #load-btn {
     width: 24;
+}
+
+/* === Button row spacing === */
+.button-row {
+    margin: 1 0 0 0;
 }
 
 /* Error message */
@@ -514,45 +404,15 @@ DataTable > .datatable--header {
 
 
 class CalendarContent(Vertical):
-    """Panel that holds all calendar content that changes on navigation.
-
-    Recomposing this panel avoids remounting Header/Footer/Screen chrome.
-    """
+    """Panel with a DateRangePicker and navigation buttons."""
 
     def __init__(self, screen: Screen) -> None:
         super().__init__(id="main-content")
         self._screen = screen
 
-    # ── Screen state proxies ──────────────────────────────────────────────
-
     @property
-    def repo_path(self) -> Path: return self._screen.repo_path  # type: ignore[return-value]
-
-    @property
-    def from_date(self) -> date | None: return self._screen.from_date  # type: ignore[return-value]
-
-    @from_date.setter
-    def from_date(self, v: date | None) -> None: self._screen.from_date = v  # type: ignore[assignment]
-
-    @property
-    def until_date(self) -> date | None: return self._screen.until_date  # type: ignore[return-value]
-
-    @until_date.setter
-    def until_date(self, v: date | None) -> None: self._screen.until_date = v  # type: ignore[assignment]
-
-    @property
-    def view_date(self) -> date: return self._screen.view_date  # type: ignore[return-value]
-
-    @view_date.setter
-    def view_date(self, v: date) -> None: self._screen.view_date = v  # type: ignore[assignment]
-
-    @property
-    def _date_mode(self) -> str: return self._screen._date_mode  # type: ignore[return-value]
-
-    @_date_mode.setter
-    def _date_mode(self, v: str) -> None: self._screen._date_mode = v  # type: ignore[assignment]
-
-    # ── Compose ───────────────────────────────────────────────────────────
+    def repo_path(self) -> Path:
+        return self._screen.repo_path
 
     def compose(self) -> ComposeResult:
         with Vertical(id="title-banner"):
@@ -560,124 +420,51 @@ class CalendarContent(Vertical):
             yield Label(f"Repository: {self.repo_path}", id="repo-label")
 
         with Horizontal(classes="center-row"):
-            with Horizontal(id="cal-controls"):
-                with Horizontal(id="select-mode"):
-                    mode_from_variant = "primary" if self._date_mode == "from" else "default"
-                    mode_until_variant = "primary" if self._date_mode == "until" else "default"
-                    yield Button("Set From Date", id="mode-from", variant=mode_from_variant)
-                    yield Button("Set Until Date", id="mode-until", variant=mode_until_variant)
-                yield Label("  ", id="cal-controls-spacer")
-                with Horizontal(id="cal-nav"):
-                    yield Select(
-                        [(cal_mod.month_name[i], i) for i in range(1, 13)],
-                        id="month-select",
-                        value=self.view_date.month,
-                        prompt="Month",
-                    )
-                    yield Select(
-                        [
-                            (str(y), y)
-                            for y in range(self.view_date.year - 10, self.view_date.year + 3)
-                        ],
-                        id="year-select",
-                        value=self.view_date.year,
-                        prompt="Year",
-                    )
+            yield DateRangePicker(id="date-picker")
 
-        with Horizontal(id="date-display"):
-            from_text = self.from_date.isoformat() if self.from_date else "Not set"
-            until_text = self.until_date.isoformat() if self.until_date else "Not set"
-            yield Label("From: ", id="from-label")
-            yield Label(from_text, id="from-date-label", classes="date-val")
-            yield Label("  Until: ", id="until-label")
-            yield Label(until_text, id="until-date-label", classes="date-val")
-
-        with Horizontal(id="cal-dow"):
-            for d in DOW:
-                yield Label(d, classes="dow-label")
-
-        with Horizontal(classes="center-row"):
-            with Grid(id="cal-grid"):
-                cal = cal_mod.monthcalendar(self.view_date.year, self.view_date.month)
-                for week in cal:
-                    for day_num in week:
-                        if day_num == 0:
-                            yield Button("", disabled=True, classes="day-blank")
-                        else:
-                            day = date(self.view_date.year, self.view_date.month, day_num)
-                            btn = DayButton(day_num, classes="day")
-                            if day == self.from_date:
-                                btn.add_class("selected-from")
-                            if day == self.until_date:
-                                btn.add_class("selected-until")
-                            if (
-                                self.from_date
-                                and self.until_date
-                                and self.from_date < day < self.until_date
-                            ):
-                                btn.add_class("selected-range")
-                            yield btn
-
-        with Horizontal(classes="center-row"):
+        with Horizontal(classes="center-row button-row"):
             yield Button("Load Branches", variant="primary", id="load-btn")
             yield Button("Maintenance", variant="default", id="maintenance-btn")
+
         yield Static(id="error-msg")
         with Horizontal(id="bottom-bar"):
             yield Label(f"Repository: {self.repo_path}", id="repo-label-bottom")
 
-    # ── Handlers ──────────────────────────────────────────────────────────
+    async def _on_mount(self) -> None:
+        """Inject From/Until labels into the DateRangePicker input row."""
+        picker = self.query_one(DateRangePicker)
+        control = picker.query_one("#input-control")
+        await control.mount(
+            Label("From:", id="lbl-from"),
+            before=picker.query_one("#start-date-input"),
+        )
+        await control.mount(
+            Label("Until:", id="lbl-until"),
+            before=picker.query_one("#stop-date-input"),
+        )
 
-    async def on_select_changed(self, event: Select.Changed) -> None:
-        event.stop()
-        select_id = event.select.id
-        if select_id == "month-select":
-            new_month = event.value
-            max_day = cal_mod.monthrange(self.view_date.year, new_month)[1]
-            self.view_date = self.view_date.replace(month=new_month, day=min(self.view_date.day, max_day))
-        elif select_id == "year-select":
-            new_year = event.value
-            max_day = cal_mod.monthrange(new_year, self.view_date.month)[1]
-            self.view_date = self.view_date.replace(year=new_year, day=min(self.view_date.day, max_day))
-        # Defer recompose so Select dropdown overlay closes first
-        self.set_timer(0, self.recompose)
+    @on(DateRangePicker.Changed)
+    def _collapse_after_range_set(self, event: DateRangePicker.Changed) -> None:
+        """Collapse the picker overlay once both dates are selected."""
+        if event.start and event.end:
+            self.query_one(DateRangePicker).expanded = False
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
-
-        if btn_id in ("mode-from", "mode-until"):
-            self._date_mode = "from" if btn_id == "mode-from" else "until"
-            await self.recompose()
-        elif btn_id == "load-btn":
+        if btn_id == "load-btn":
             await self._load_branches()
         elif btn_id == "maintenance-btn":
             await self.app.push_screen(MaintenanceScreen(self.repo_path))
-        elif isinstance(event.button, DayButton):
-            day_num = event.button.day_num
-            selected = date(self.view_date.year, self.view_date.month, day_num)
-            if self._date_mode == "from":
-                self.from_date = selected
-                self._date_mode = "until"
-                if self.until_date and self.from_date > self.until_date:
-                    self.from_date, self.until_date = (
-                        self.until_date,
-                        self.from_date,
-                    )
-            else:
-                self.until_date = selected
-                if self.from_date and self.until_date < self.from_date:
-                    self.from_date, self.until_date = (
-                        self.until_date,
-                        self.from_date,
-                    )
-            await self.recompose()
 
     async def _load_branches(self) -> None:
         error_msg = self.query_one("#error-msg", Static)
+        picker = self.query_one("#date-picker", DateRangePicker)
 
-        if not self.from_date or not self.until_date:
+        if not picker.start_date or not picker.end_date:
             error_msg.update("Please select both From and Until dates.")
             return
-        if self.from_date > self.until_date:
+
+        if picker.start_date > picker.end_date:
             error_msg.update("'From' date must be before 'Until' date.")
             return
 
@@ -691,23 +478,19 @@ class CalendarContent(Vertical):
         await self.app.push_screen(
             BranchListScreen(
                 repo_path=self.repo_path,
-                since=self.from_date,
-                until=self.until_date,
+                since=picker.start_date.py_date(),
+                until=picker.end_date.py_date(),
             )
         )
 
 
 class CalendarScreen(Screen):
-    """Screen with an interactive calendar date picker."""
+    """Screen with a date range picker."""
 
     def __init__(self, repo_path: Path) -> None:
         super().__init__()
         self.title = "Git Cleaner"
         self.repo_path = repo_path
-        self.from_date = None
-        self.until_date = None
-        self.view_date = date.today().replace(day=1)
-        self._date_mode = "from"
 
     def compose(self) -> ComposeResult:
         yield Header()
