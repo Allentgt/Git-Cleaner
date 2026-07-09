@@ -1,10 +1,13 @@
 [project]
 name = "git-cleaner-tui"
-version = "1.0.2"
+version = "1.0.3"
 description = "TUI tool for browsing and bulk-deleting git branches"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["textual"]
+dependencies = [
+    "textual",
+    "textual-timepiece>=0.7.0",
+]
 authors = [{ name = "git-cleaner" }]
 
 [project.scripts]

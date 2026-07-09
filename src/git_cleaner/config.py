@@ -61,50 +61,18 @@ def load_theme() -> str:
 
 
 def save_theme(theme_name: str) -> None:
-    """Persist the theme name to the global config file.
-
-    Only touches the [theme] section — all other sections are left as-is.
-    """
-    if not _GLOBAL_CFG.exists():
-        _GLOBAL_CFG.write_text(f'[theme]\nname = "{theme_name}"\n')
-        return
-
-    lines = _GLOBAL_CFG.read_text().splitlines()
+    """Persist the theme name to the global config file."""
+    lines = _GLOBAL_CFG.read_text().splitlines() if _GLOBAL_CFG.exists() else []
     out: list[str] = []
-    in_theme_section = False
-    theme_found = False
-
+    in_theme = False
     for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            # Section boundary
-            section_name = stripped[1:-1].strip()
-            if section_name == "theme":
-                in_theme_section = True
-                theme_found = True
-                out.append("[theme]")
-                continue
-            else:
-                in_theme_section = False
-                out.append(line)
-                continue
-
-        if in_theme_section:
-            # Skip existing theme lines, we'll write our own
-            if stripped.startswith("name") or stripped.startswith("name "):
-                continue
-            if stripped == "":
-                continue
+        s = line.strip()
+        if s == "[theme]":
+            in_theme = True
+            continue
+        if s.startswith("["):
+            in_theme = False
+        if not in_theme:
             out.append(line)
-        else:
-            out.append(line)
-
-    # Append or update the theme section
-    if theme_found:
-        out.append(f'name = "{theme_name}"')
-    else:
-        out.append("")
-        out.append('[theme]')
-        out.append(f'name = "{theme_name}"')
-
+    out += ["", "[theme]", f'name = "{theme_name}"']
     _GLOBAL_CFG.write_text("\n".join(out) + "\n")
