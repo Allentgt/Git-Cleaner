@@ -11,6 +11,11 @@ class BranchInfo:
     name: str
     commit_date: datetime
     is_current: bool
+    author: str = ""
+    ahead: int = 0
+    behind: int = 0
+    has_upstream: bool = False
+    commit_hash: str = ""
     is_protected: bool = False
     is_blacklisted: bool = False
 
@@ -43,7 +48,7 @@ def list_branches(
             "git",
             "for-each-ref",
             "refs/heads/",
-            "--format=%(refname:short)%00%(committerdate:unix)%00%(HEAD)",
+            "--format=%(refname:short)%00%(committerdate:unix)%00%(authorname)%00%(HEAD)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(objectname)",
         ],
         capture_output=True,
         text=True,
@@ -57,11 +62,15 @@ def list_branches(
         if not line:
             continue
         parts = line.split("\0")
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
         name = parts[0]
         ts = int(parts[1])
-        is_current = parts[2] == "*"
+        author = parts[2]
+        is_current = parts[3] == "*"
+        upstream = parts[4] if len(parts) > 4 else ""
+        track = parts[5] if len(parts) > 5 else ""
+        commit_hash = parts[6] if len(parts) > 6 else ""
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
 
         if since is not None and dt < since:
@@ -69,8 +78,22 @@ def list_branches(
         if until is not None and dt > until:
             continue
 
+        has_upstream = bool(upstream)
+        ahead, behind = 0, 0
+        if has_upstream and track:
+            for part in track.split(", "):
+                part = part.strip()
+                if part.startswith("ahead "):
+                    ahead = int(part[6:])
+                elif part.startswith("behind "):
+                    behind = int(part[7:])
+
         branches.append(
-            BranchInfo(name=name, commit_date=dt, is_current=is_current)
+            BranchInfo(
+                name=name, commit_date=dt, is_current=is_current, author=author,
+                ahead=ahead, behind=behind, has_upstream=has_upstream,
+                commit_hash=commit_hash,
+            )
         )
 
     return branches
@@ -109,6 +132,113 @@ def delete_remote_branches(repo_path: Path, names: list[str]) -> list[str]:
         if result.returncode != 0:
             failed.append(name)
     return failed
+
+
+def restore_branch(repo_path: Path, branch_name: str, commit_hash: str) -> tuple[bool, str]:
+    """Restore a deleted branch via ``git branch <name> <commit>``."""
+    result = subprocess.run(
+        ["git", "branch", branch_name, commit_hash],
+        capture_output=True, text=True, cwd=repo_path,
+    )
+    if result.returncode == 0:
+        return True, f"Restored {branch_name}"
+    return False, f"Failed to restore {branch_name}: {result.stderr.strip()}"
+
+
+# ─── Stash operations ──────────────────────────────────────────────────
+
+
+@dataclass
+class StashInfo:
+    ref: str         # stash@{0}
+    branch: str      # extracted from reflog subject
+    message: str     # stash description
+    date: datetime
+
+
+def _parse_stash_subject(subject: str) -> tuple[str, str]:
+    """Parse reflog subject into (branch, message).
+
+    Handles both 'On branchname: message' and 'WIP on branchname: message'.
+    """
+    for prefix in ("On ", "WIP on "):
+        if subject.startswith(prefix):
+            rest = subject[len(prefix):]
+            colon = rest.find(": ")
+            if colon > 0:
+                return rest[:colon], rest[colon + 2:]
+            return "", rest
+    return "", subject
+
+
+def list_stashes(repo_path: Path) -> list[StashInfo]:
+    """Return list of stashes with metadata."""
+    result = subprocess.run(
+        ["git", "stash", "list", "--format=%gd||S||%gD||S||%gs||S||%ci"],
+        capture_output=True, text=True, cwd=repo_path,
+    )
+    if result.returncode != 0:
+        return []
+
+    stashes: list[StashInfo] = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("||S||")
+        if len(parts) < 4:
+            continue
+        ref = parts[0]
+        subject = parts[2]
+        date_str = parts[3].strip()
+        branch, message = _parse_stash_subject(subject)
+        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S %z") if date_str else datetime.now(timezone.utc)
+        stashes.append(StashInfo(ref=ref, branch=branch, message=message, date=dt))
+    return stashes
+
+
+def drop_stash(repo_path: Path, ref: str) -> tuple[bool, str]:
+    """Drop a stash entry."""
+    result = subprocess.run(
+        ["git", "stash", "drop", ref],
+        capture_output=True, text=True, cwd=repo_path,
+    )
+    return result.returncode == 0, result.stderr.strip() or f"Dropped {ref}"
+
+
+def apply_stash(repo_path: Path, ref: str) -> tuple[bool, str]:
+    """Apply a stash without removing it."""
+    result = subprocess.run(
+        ["git", "stash", "apply", ref],
+        capture_output=True, text=True, cwd=repo_path,
+    )
+    return result.returncode == 0, result.stderr.strip() or f"Applied {ref}"
+
+
+def pop_stash(repo_path: Path, ref: str) -> tuple[bool, str]:
+    """Pop (apply + drop) a stash."""
+    result = subprocess.run(
+        ["git", "stash", "pop", ref],
+        capture_output=True, text=True, cwd=repo_path,
+    )
+    return result.returncode == 0, result.stderr.strip() or f"Popped {ref}"
+
+
+def get_branch_details(repo_path: Path, branch_name: str) -> str:
+    """Return formatted last-commit details + diff stat for a branch."""
+    try:
+        result = subprocess.run(
+            [
+                "git", "show", "--stat", "-1",
+                "--format=Commit: %H%nAuthor: %an <%ae>%nDate: %ai%n%n%s%n",
+                branch_name,
+            ],
+            capture_output=True, text=True, cwd=repo_path, timeout=10,
+        )
+        if result.returncode != 0:
+            return f"Error: {result.stderr.strip()}"
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "Timed out fetching branch details"
 
 
 # ─── Repository health & maintenance ─────────────────────────────────────────

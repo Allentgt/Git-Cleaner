@@ -1,33 +1,23 @@
-```text
-      ▀   █               █
-█▀▀█  █  ▀█▀  ▄▄▄▄  █▀▀▀  █  █▀▀█  ▀▀▀█  █▀▀█  █▀▀█  █▀▀▀
-█▄▄█  █   █         █     █  █▀▀▀  █▀▀█  █  █  █▀▀▀  █
-▄▄▄█  ▀   ▀         ▀▀▀▀  ▀  ▀▀▀▀  ▀▀▀▀  ▀  ▀  ▀▀▀▀  ▀
-```
+# Git Cleaner
 
-A **TUI tool** for interactively browsing and bulk-deleting git branches, plus **repo maintenance** (GC, repack, prune). Pick a date range, review branches with their last-commit dates, and delete locally and/or on remote — protected and blacklisted branches are automatically safeguarded.
-
-Built with [Textual](https://textual.textualize.io/) and Python 3.11+.
+TUI tool for interactively browsing and bulk-deleting git branches, with repo maintenance (GC, repack, prune), a stash browser, and multi-repo bookmarks.
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue?logo=python)
 ![Textual](https://img.shields.io/badge/textual-8.x-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+Built with [Textual](https://textual.textualize.io/) + Python 3.11+.
+
 ---
 
 ## Installation
 
-### With uv (recommended)
-
 ```bash
-# Install as a global tool
 uv tool install git-cleaner-tui
-
-# Run in any git repo
 git-cleaner-tui
 ```
 
-### From source
+Or from source:
 
 ```bash
 git clone https://github.com/Allentgt/Git-Cleaner
@@ -36,172 +26,96 @@ uv sync
 uv run git-cleaner-tui --repo /path/to/repo
 ```
 
-### Requirements
-
-- Python ≥ 3.11
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- A git repository
+Requires Python ≥ 3.11, uv (or pip), and a git repository.
 
 ---
 
 ## Features
 
-- **🗓️ Interactive calendar** — Pick From / Until dates visually, with highlighted range and auto-switching mode
-- **🔍 Branch browser** — DataTable with multi-select, sorted by last commit date
-- **🛡️ Protection** — `main`, `master`, `develop`, plus custom patterns from config; marked with 🔒, cannot be deleted
-- **⛔ Blacklist** — Wildcard patterns (`archive/*`, `wip-*`); marked with ⛔, hidden by default
-- **☁️ Remote deletion** — Toggle `r` to also delete branches on remote (`git push origin --delete`)
-- **🔧 Maintenance dashboard** — Repo health stats, `git gc`, `git repack`, `git remote prune`, `git reflog expire`
-- **📁 Configurable** — Per-repo `.git-branch-cleaner.toml` + global `~/.git-branch-cleaner.toml`
-- **⚡ Fast** — Single `git for-each-ref` call for branch listing; bulk delete with one confirm
+- **🗓️ Date filtering** — Pick From/Until dates (calendar picker) or use presets: 7d, 30d, 90d, 1y
+- **🔍 Branch browser** — Tree view with prefix grouping (`feature/`, `bugfix/`, …), ahead/behind tracking, stale badge (>180d), details pane on select
+- **🛡️ Protection** — `main`/`master`/`develop` + custom patterns from `.git-branch-cleaner.toml`; cannot be selected
+- **⛔ Blacklist** — Wildcard patterns (`archive/*`); hidden by default
+- **☁️ Remote deletion** — Toggle `r` to also delete on remote (`git push origin --delete`)
+- **🧪 Dry Run** — Toggle to preview deletions without executing
+- **↩️ Undo** — Press `u` to restore the last batch via reflog (`git branch <name> <hash>`)
+- **📥 CSV/JSON export** — Download filtered branch list to CWD
+- **🔧 Maintenance dashboard** — Repo health stats + GC/Repack/Prune/Reflog tasks
+- **📦 Stash browser** — List/drop/apply/pop stashes from the Stashes tab
+- **🔖 Multi-repo bookmarks** — `Ctrl+B` to save and switch between repos
+- **⚡ Fast** — Single `git for-each-ref` call; bulk delete with one confirm
 
 ---
 
 ## Usage
-
-### 0. Start the App
 
 ```bash
 git-cleaner-tui
 # or: git-cleaner-tui --repo /path/to/repo
 ```
 
-Opens the calendar screen. Press **Maintenance** for repo optimization, or pick dates and **Load Branches** to clean.
-
-### 1. Pick a Date Range
-
-The app opens with an interactive calendar:
-
-- **Navigate months** with `<` / `>` arrows
-- **Set From date** — click a day (mode auto-switches to Until)
-- **Set Until date** — click another day
-- **Toggle mode** manually with `Set From Date` / `Set Until Date` buttons
-- Selected range is highlighted in the calendar grid
-
-When both dates are set, click **Load Branches**.
-
-### 2. Browse and Select Branches
+### Branches Tab
 
 | Key | Action |
 |-----|--------|
-| `Space` | Toggle selection on focused row |
-| `a` | Toggle select / deselect all selectable branches |
-| `d` | Delete selected (with confirmation dialog) |
-| `r` | Toggle remote deletion on/off |
-| `p` | Toggle show/hide protected branches |
-| `b` | Toggle show/hide blacklisted branches |
-| `Escape` | Go back to calendar |
-| `Ctrl+R` | Refresh branch list |
+| `Space` | Toggle selection |
+| `a` | Select / deselect all |
+| `d` | Delete selected (with confirmation) |
+| `r` | Toggle remote deletion |
+| `p` | Toggle protected visibility |
+| `b` | Toggle blacklisted visibility |
+| `u` | Undo last deletion batch |
+| `Ctrl+R` | Refresh |
+| `Ctrl+B` | Open bookmarks |
 
-- **Protected** branches 🔒 are always safe — cannot be selected
-- **Blacklisted** branches ⛔ are hidden by default; press `b` to review them
-- Status bar shows: `Total | Selected | Protected | Blacklisted | Remote ON/OFF`
+Date presets (7d/30d/90d/1y) sit next to the Load button. Branches appear grouped by prefix in a collapsible Tree. Select a leaf node to see its last-commit details.
 
-### 3. Confirm Deletion
+### Maintenance Tab
 
-A modal dialog lists all branches marked for deletion and shows the scope:
+Health stats and one‑click tasks: Git GC, GC Aggressive, Repack, Prune Remote, Expire Reflog, or Run All (sequential). Runs async — UI stays responsive.
 
-- **Local only** — `git branch -D <name>`
-- **Local + remote** — `git branch -D <name>` then `git push origin --delete <name>`
+### Stashes Tab
 
-Remote deletion is attempted only for branches that succeeded locally.
+DataTable of all stashes with Drop / Apply / Pop / Refresh buttons.
 
-### 4. Maintenance Dashboard
+### Bookmarks
 
-Press **Maintenance** on the calendar screen opens a dashboard with:
-
-**Repository Health:**
-- `.git` directory size
-- Loose object count (unpacked)
-- Packed object count + total pack size
-- Garbage objects
-- Prune-packable objects
-
-**Maintenance Tasks** (click any to run):
-
-| Button | Command | Use Case |
-|--------|---------|---------|
-| **Git GC** | `git gc` | Standard housekeeping — compress revisions, remove loose objects |
-| **GC Aggressive** | `git gc --aggressive` | Deep optimization (slower, best for repos that haven't been GC'd in months) |
-| **Repack** | `git repack -Ad` | Reorganize pack files for better delta compression |
-| **Prune Remote** | `git remote prune origin` | Remove stale remote-tracking refs (branches deleted on remote) |
-| **Expire Reflog** | `git reflog expire --expire=90.days.ago` | Trim old reflog entries |
-| **Run All** | Runs the 4 tasks above sequentially | One-shot full cleanup |
-
-Tasks run asynchronously (UI stays responsive). Health stats refresh automatically after each task.
-
-| Key | Action |
-|-----|--------|
-| `Escape` | Back to calendar |
-| `r` | Refresh health stats |
+`Ctrl+B` opens a modal to add the current repo, remove it, or switch to a bookmarked repo. Persisted in `~/.git-branch-cleaner.toml`.
 
 ---
 
 ## Configuration
 
-### Project-level config
-
-Place `.git-branch-cleaner.toml` in your repository root:
+`~/.git-branch-cleaner.toml` (global) or `.git-branch-cleaner.toml` (per‑repo):
 
 ```toml
 [protected]
 patterns = ["release/*", "hotfix/*"]
 
 [blacklist]
-patterns = ["archive/*", "wip-*", "experiments/**"]
+patterns = ["archive/*", "wip-*"]
+
+[theme]
+name = "textual-dark"
 ```
 
-### Global config
-
-Place `~/.git-branch-cleaner.toml` for user-wide rules:
-
-```toml
-[protected]
-patterns = ["personal/*"]
-
-[blacklist]
-patterns = ["deps/*"]
-```
-
-### Merging strategy
-
-All sources merged (hardcoded defaults → global → project), with project config taking highest precedence.
-
-**Hardcoded defaults** (always active): `main`, `master`, `develop` are protected. The current checked-out branch is also automatically protected.
+Hardcoded defaults (always active): `main`, `master`, `develop`. The checked-out branch is also protected.
 
 ---
 
-## Keybindings Reference
+## Keybindings
 
-### Calendar Screen
-
-| Key | Action |
-|-----|--------|
-| Click day | Select date (From or Until per mode) |
-| Click `<` `>` | Navigate months |
-| Click mode buttons | Toggle between From / Until selection |
-| Click **Load Branches** | Proceed to branch list |
-| Click **Maintenance** | Open maintenance dashboard |
-
-### Branch List Screen
-
-| Key | Action |
-|-----|--------|
-| `Space` | Toggle row selection |
-| `a` | Toggle select / deselect all eligible |
-| `d` | Delete selected |
-| `r` | Toggle remote deletion |
-| `p` | Toggle protected visibility |
-| `b` | Toggle blacklisted visibility |
-| `Escape` | Back to calendar |
-| `Ctrl+R` | Refresh |
-
-### Maintenance Screen
-
-| Key | Action |
-|-----|--------|
-| `Escape` | Back to calendar |
-| `r` | Refresh health stats |
+| Tab | Key | Action |
+|-----|-----|--------|
+| Branches | `Space` | Toggle selection |
+| Branches | `a` | Select / deselect all |
+| Branches | `d` | Delete selected |
+| Branches | `r` | Toggle remote |
+| Branches | `p` | Toggle protected |
+| Branches | `b` | Toggle blacklisted |
+| Branches | `u` | Undo deletion |
+| Branches | `Ctrl+R` | Reload |
+| All | `Ctrl+B` | Bookmarks |
 
 ---
 
@@ -209,86 +123,47 @@ All sources merged (hardcoded defaults → global → project), with project con
 
 ```
 git-cleaner/
-├── pyproject.toml           # Project metadata, deps, entry point
+├── pyproject.toml
 ├── README.md
-├── src/
-│   └── git_cleaner/
-│       ├── __init__.py
-│       ├── __main__.py      # python -m git_cleaner entry
-│       ├── cli.py           # CLI arg parsing
-│       ├── app.py           # Textual TUI (Calendar, Maintenance, BranchList, Confirm)
-│       ├── config.py        # TOML config loading and merging
-│       └── git_ops.py       # Git subprocess wrapper (list, delete, gc, repack, etc.)
-├── tests/
-│   ├── test_config.py       # 7 tests
-│   └── test_git_ops.py      # 16 tests
-└── uv.lock
+├── src/git_cleaner/
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── cli.py           # --repo flag, launches app
+│   ├── app.py           # Textual TUI (screens, widgets, CSS)
+│   ├── config.py        # TOML loading, protected/blacklist/theme/bookmarks
+│   └── git_ops.py       # Git wrappers (branch/stash/GC ops)
+└── tests/
+    ├── test_config.py
+    └── test_git_ops.py
 ```
-
-### Module responsibilities
-
-| Module | Role |
-|--------|------|
-| `cli.py` | Parse `--repo` flag, launch the TUI app |
-| `app.py` | Textual screens: calendar, maintenance dashboard, branch list with DataTable, confirmation dialog |
-| `config.py` | Load `.git-branch-cleaner.toml` (project + global), fnmatch pattern matching |
-| `git_ops.py` | `list_branches()`, `delete_branches()`, `delete_remote_branches()`, `get_repo_root()`, `get_git_dir_size()`, `get_object_stats()`, `run_gc()`, `repack_objects()`, `prune_remote()`, `expire_reflog()` |
 
 ---
 
 ## Development
 
 ```bash
-# Set up
 git clone https://github.com/Allentgt/Git-Cleaner
 cd git-cleaner
 uv sync --dev
-
-# Run tests (23 total)
-uv run pytest
-
-# Run with verbose output
-uv run pytest -v
-
-# Run a specific test
-uv run pytest tests/test_config.py -v
-
-# Run the app
-uv run git-cleaner-tui --repo /path/to/repo
+uv run pytest        # 23 tests
+uv run git-cleaner-tui
 ```
-
-### Test coverage
-
-23 tests covering:
-
-- Config loading and merging (defaults, project, global)
-- Pattern matching (exact, wildcard, fnmatch)
-- Git operations (listing, current branch detection, date filtering, deletion, remote deletion)
-- Repository health (`get_git_dir_size`, `get_object_stats`)
-- Maintenance tasks (`run_gc`, `repack_objects`, `prune_remote`, `expire_reflog`)
-- Error handling (non-repo path, no remote configured, timeout)
 
 ---
 
 ## FAQ
 
 **Q: Can I undo a deletion?**  
-No — `git branch -D` is irreversible. Use the confirmation dialog to review before confirming.
+Yes — press `u` immediately after deleting. Undo uses `git branch <name> <hash>` via the stored commit hash.
 
 **Q: Does it work on Windows?**  
-Yes. Tested on Windows (PowerShell), macOS, and Linux. Requires Python 3.11+.
-
-**Q: Can I delete remote branches?**  
-Yes. Press `r` to toggle remote deletion on, then delete normally. Branches are deleted locally first, then via `git push origin --delete`.
+Yes. Tested on Windows, macOS, Linux. Python 3.11+.
 
 **Q: How are dates filtered?**  
-By the commit date of the branch tip (most recent commit). Both From and Until are inclusive.
-
-**Q: Is `git gc --aggressive` safe?**  
-Yes. It's more CPU-intensive than standard `git gc` but performs deeper optimization. Good for repos that haven't been GC'd in months. The UI won't freeze — it runs in a background thread.
+By the commit date of the branch tip. Both From and Until are inclusive.
 
 **Q: Does the maintenance dashboard modify my repo?**  
-Yes, the maintenance tasks run real git commands (`git gc`, `git repack`, etc.) that modify the `.git` directory. They are safe read-only operations that don't change working tree files.
+It runs real git commands that modify `.git`. They don't change working tree files.
 
 ---
 
