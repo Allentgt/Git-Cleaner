@@ -76,3 +76,46 @@ def save_theme(theme_name: str) -> None:
             out.append(line)
     out += ["", "[theme]", f'name = "{theme_name}"']
     _GLOBAL_CFG.write_text("\n".join(out) + "\n")
+
+
+# ── Repository bookmarks ────────────────────────────────────────────────
+
+
+def load_bookmarks() -> list[str]:
+    """Return list of bookmarked repo paths from global config."""
+    cfg = _load_toml(_GLOBAL_CFG)
+    return cfg.get("bookmarks", {}).get("paths", [])
+
+
+def save_bookmarks(bookmarks: list[str]) -> None:
+    """Persist bookmarks to the global config file."""
+    lines = _GLOBAL_CFG.read_text().splitlines() if _GLOBAL_CFG.exists() else []
+    out: list[str] = []
+    in_section = False
+    for line in lines:
+        s = line.strip()
+        if s == "[bookmarks]":
+            in_section = True
+            continue
+        if s.startswith("["):
+            in_section = False
+        if not in_section:
+            out.append(line)
+    quoted = [f'"{p}"' for p in bookmarks]
+    out += ["", "[bookmarks]", f"paths = [{', '.join(quoted)}]"]
+    _GLOBAL_CFG.write_text("\n".join(out) + "\n")
+
+
+def add_bookmark(path: str) -> None:
+    """Add a repo path to bookmarks if not already present."""
+    bookmarks = load_bookmarks()
+    if path not in bookmarks:
+        bookmarks.append(path)
+        save_bookmarks(bookmarks)
+
+
+def remove_bookmark(path: str) -> None:
+    """Remove a repo path from bookmarks."""
+    bookmarks = load_bookmarks()
+    bookmarks = [p for p in bookmarks if p != path]
+    save_bookmarks(bookmarks)
