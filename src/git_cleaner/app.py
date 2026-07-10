@@ -104,19 +104,20 @@ Footer {
     background: $primary 10%;
 }
 
-/* === Tab styling (match the Option B mockup) === */
+/* === Tab styling === */
 ContentTabs {
     background: $surface 50%;
-    height: 3;
+    height: 1;
 }
 
 Tab {
     width: auto;
-    height: 3;
+    height: 1;
     padding: 0 2;
     text-align: center;
     color: $text-muted;
     text-style: bold;
+    content-align: center middle;
 }
 
 Tab:hover {
@@ -150,11 +151,16 @@ Tab:disabled {
     padding: 0 1 0 0;
 }
 
+/* === Date range picker === */
+DateRangePicker {
+    max-height: 8;
+}
+
 /* === Date picker + Load button row === */
 #date-btn-row {
     height: auto;
     align: center middle;
-    margin: 0 1;
+    margin: 0 1 1 1;
 }
 
 #date-btn-row > #load-btn {
@@ -170,34 +176,40 @@ Tab:disabled {
 /* === Filter row: search + author === */
 #filter-row {
     height: auto;
-    margin: 0 1 0 1;
+    margin: 0 1 1 1;
     align: left middle;
 }
 
 #search-input {
     width: 1fr;
-    min-width: 20;
+    min-width: 12;
 }
 
 #author-select {
-    width: 28;
-    min-width: 16;
-    margin: 0 0 0 2;
+    width: 20;
+    min-width: 12;
+    margin: 0 0 0 1;
 }
 
 /* === Error / status messages === */
 #status-bar {
     height: 1;
     padding: 0 2;
+    margin: 0 1;
     color: $text-muted;
 }
 
-/* === Action row (remote toggle) === */
+/* === Action row (remote toggle + export) === */
 #action-row {
     height: auto;
-    margin: 0 0 0 2;
+    margin: 0 1;
     align: left middle;
     width: 100%;
+}
+
+#action-spacer {
+    width: 1fr;
+    height: 1;
 }
 
 #toggle-remote {
@@ -211,17 +223,25 @@ Tab:disabled {
     margin: 0 0 0 1;
 }
 
-/* === Branch table === */
+#export-csv, #export-json {
+    margin: 0 0 0 1;
+}
+
+/* === Branch tree === */
+#branches-pane > Vertical, #stash-pane > Vertical {
+    height: 1fr;
+}
+
 #branch-table {
     height: 1fr;
-    margin: 0 1 0 1;
+    margin: 0 1;
     width: 100%;
 }
 
 #details-pane {
     height: auto;
-    max-height: 12;
-    margin: 0 1;
+    max-height: 6;
+    margin: 0 1 1 1;
     padding: 0 1;
     border: solid $primary 20%;
     background: $surface 50%;
@@ -238,21 +258,21 @@ Tree:focus {
 
 /* === Tabbed content pane === */
 #branches-pane, #maintenance-pane, #stash-pane {
-    padding: 1 0;
+    padding: 0 0;
     height: 1fr;
 }
 
 /* === Maintenance pane === */
 .section-title {
     text-style: bold;
-    padding: 0 0 1 0;
+    padding: 0;
     color: $text;
 }
 
 #health-stats {
     height: auto;
-    margin: 0 2;
-    padding: 0 1 0 2;
+    margin: 0 1 1 1;
+    padding: 0 1;
     border: solid $primary 30%;
 }
 
@@ -281,7 +301,6 @@ Tree:focus {
 #health-status-bar {
     height: auto;
     padding: 0 1;
-    margin: 0 0 0 0;
 }
 
 #health-status-label {
@@ -336,7 +355,7 @@ Tree:focus {
 
 #tasks-section {
     height: auto;
-    margin: 1 2;
+    margin: 0 1 1 1;
 }
 
 .task-row {
@@ -347,14 +366,14 @@ Tree:focus {
 }
 
 .task-button {
-    margin: 0 1 0 0;
-    min-width: 16;
+    margin: 0 1;
+    min-width: 14;
 }
 
 /* === Status bar (always visible above task buttons) === */
 #task-status-bar {
     height: auto;
-    margin: 0 2 1 2;
+    margin: 0 1 1 1;
     padding: 0 1;
     border: solid $primary 30%;
     align: center middle;
@@ -373,25 +392,24 @@ Tree:focus {
 
 /* === Command output log === */
 #task-output {
-    height: 6;
-    max-height: 30;
-    margin: 0 2;
-    padding: 1;
+    height: 4;
+    max-height: 20;
+    margin: 0 1 1 1;
+    padding: 0 1;
     border: solid $surface;
     background: $surface 50%;
 }
 
 #maintenance-actions {
     height: auto;
-    margin: 1 0;
     align: center middle;
 }
 
 /* === Task help legend === */
 #help-legend {
     height: auto;
-    margin: 0 2;
-    padding: 1 2;
+    margin: 0 1 1 1;
+    padding: 0 1;
     border: dashed $surface;
     overflow-x: auto;
 }
@@ -405,47 +423,34 @@ Tree:focus {
 /* === Confirmation dialog === */
 #dialog {
     width: auto;
-    min-width: 40;
-    max-width: 70;
+    min-width: 30;
+    max-width: 60;
     height: auto;
     border: solid $primary;
-    padding: 1 2;
+    padding: 0 1;
     background: $surface;
     align: center middle;
 }
 
 #dialog > Label {
     text-style: bold;
-    padding: 0 0 1 0;
+    padding: 0;
 }
 
 #dialog Horizontal {
     height: auto;
-    margin: 1 0;
     align: center middle;
 }
 
 #dialog Button {
     margin: 0 1;
-    min-width: 10;
-}
-
-/* === Export row === */
-#export-row {
-    height: auto;
-    margin: 0 0 0 2;
-    align: left middle;
-}
-
-#export-row Button {
     min-width: 8;
-    margin: 0 1 0 0;
 }
 
 /* === Stash browser === */
 #stash-table {
     height: 1fr;
-    margin: 0 1;
+    margin: 0 1 1 1;
 }
 
 #stash-actions {
@@ -461,6 +466,7 @@ Tree:focus {
 
 #stash-status {
     height: 1;
+    margin: 0 0 1 0;
     padding: 0 2;
     color: $text-muted;
 }
@@ -475,7 +481,7 @@ Tree:focus {
 
 /* === Bottom repo label === */
 #repo-label-bottom {
-    padding: 1 2;
+    padding: 0 1;
     color: $text-muted;
     text-align: left;
     height: 1;
@@ -483,7 +489,7 @@ Tree:focus {
 
 #bottom-bar {
     height: auto;
-    margin: 1 2 0 2;
+    margin: 0 1;
     align: left middle;
     padding: 0 1;
 }
@@ -491,7 +497,7 @@ Tree:focus {
 .footer-repo-label {
     color: $text-muted;
     padding: 0 1;
-    height: 1;
+    height: auto;
     text-align: left;
 }
 """
@@ -539,9 +545,9 @@ class BranchesContent(Vertical):
         with Horizontal(id="action-row"):
             yield Button("Remote: OFF", id="toggle-remote", variant="default")
             yield Button("Dry Run: OFF", id="toggle-dry-run", variant="default")
-        with Horizontal(id="export-row"):
-            yield Button("CSV", id="export-csv", variant="default")
-            yield Button("JSON", id="export-json", variant="default")
+            yield Static("", id="action-spacer")
+            yield Button("Export as CSV", id="export-csv", variant="default")
+            yield Button("Export as JSON", id="export-json", variant="default")
         yield Static(id="status-bar")
 
     async def on_mount(self) -> None:
