@@ -1,4 +1,4 @@
-![Git Cleaner](logo/git-cleaner.png)
+![Git Cleaner](logo\logo.png)
 
 TUI tool for interactively browsing and bulk-deleting git branches, with repo maintenance (GC, repack, prune), a stash browser, and multi-repo bookmarks.
 
