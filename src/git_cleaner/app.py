@@ -160,7 +160,7 @@ DateRangePicker {
 #date-btn-row {
     height: auto;
     align: center middle;
-    margin: 0 1 1 1;
+    margin: 1 1 1 1;
 }
 
 #date-btn-row > #load-btn {
