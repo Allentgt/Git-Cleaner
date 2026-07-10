@@ -161,18 +161,33 @@ DateRangePicker {
     height: auto;
     align: center middle;
     margin: 1 1 1 1;
+    overflow-x: auto;
 }
 
+/* === Compact buttons (all except DateRangePicker internals) === */
+#load-btn, .preset-btn, #toggle-remote, #toggle-dry-run,
+#export-csv, #export-json,
+.task-button, #refresh-health,
+#stash-drop, #stash-apply, #stash-pop, #stash-refresh,
+#cancel, #confirm,
+#repo-add, #repo-remove, #repo-close {
+    min-height: 1;
+    padding: 0;
+    border: none;
+}
+
+/* Date row buttons match DateRangePicker height */
 #date-btn-row > #load-btn {
     margin: 0 0 0 2;
-    min-height: 1;
-    padding: 0 2;
+    height: 3;
+    min-height: 3;
 }
 
 .preset-btn {
     margin: 0 0 0 1;
     min-width: 5;
     height: 3;
+    min-height: 3;
 }
 
 /* === Filter row: search + author === */
@@ -207,6 +222,7 @@ DateRangePicker {
     margin: 0 1;
     align: left middle;
     width: 100%;
+    overflow-x: auto;
 }
 
 #action-spacer {
@@ -459,6 +475,7 @@ Tree:focus {
     height: auto;
     margin: 0 1;
     align: center middle;
+    overflow-x: auto;
 }
 
 #stash-actions Button {
@@ -534,22 +551,22 @@ class BranchesContent(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="date-btn-row"):
             yield DateRangePicker(id="date-picker")
-            yield Button("Load Branches", id="load-btn", variant="primary")
             yield Button("7d", id="preset-7d", classes="preset-btn")
             yield Button("30d", id="preset-30d", classes="preset-btn")
             yield Button("90d", id="preset-90d", classes="preset-btn")
             yield Button("1y", id="preset-1y", classes="preset-btn")
+            yield Button("Load Branches", id="load-btn", variant="primary")
         with Horizontal(id="filter-row"):
             yield Input(placeholder="Search branches...", id="search-input")
             yield Select([], id="author-select", prompt="All authors", allow_blank=True)
         yield Tree("", id="branch-table")
         yield Vertical(Static("Click a branch to see details", id="details-content"), id="details-pane")
         with Horizontal(id="action-row"):
-            yield Button("Remote: OFF", id="toggle-remote", variant="default")
-            yield Button("Dry Run: OFF", id="toggle-dry-run", variant="default")
+            yield Button("Remote: OFF", id="toggle-remote", variant="warning")
+            yield Button("Dry Run: OFF", id="toggle-dry-run", variant="primary")
             yield Static("", id="action-spacer")
-            yield Button("Export as CSV", id="export-csv", variant="default")
-            yield Button("Export as JSON", id="export-json", variant="default")
+            yield Button("Export as CSV", id="export-csv", variant="primary")
+            yield Button("Export as JSON", id="export-json", variant="primary")
         yield Static(id="status-bar")
 
     async def on_mount(self) -> None:
@@ -802,14 +819,14 @@ class BranchesContent(Vertical):
         self.delete_remote = not self.delete_remote
         btn = self.query_one("#toggle-remote", Button)
         btn.label = "Remote: ON" if self.delete_remote else "Remote: OFF"
-        btn.variant = "primary" if self.delete_remote else "default"
+        btn.variant = "error" if self.delete_remote else "warning"
         self._update_status()
 
     def _toggle_dry_run(self) -> None:
         self.dry_run = not self.dry_run
         btn = self.query_one("#toggle-dry-run", Button)
         btn.label = "Dry Run: ON" if self.dry_run else "Dry Run: OFF"
-        btn.variant = "error" if self.dry_run else "default"
+        btn.variant = "success" if self.dry_run else "primary"
         self._update_status()
 
     def undo_deletion(self) -> None:
