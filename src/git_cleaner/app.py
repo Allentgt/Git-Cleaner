@@ -165,6 +165,8 @@ DateRangePicker {
 
 #date-btn-row > #load-btn {
     margin: 0 0 0 2;
+    min-height: 1;
+    padding: 0 2;
 }
 
 .preset-btn {
