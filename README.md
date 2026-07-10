@@ -1,4 +1,4 @@
-# Git Cleaner
+![Git Cleaner](logo/logo.png)
 
 TUI tool for interactively browsing and bulk-deleting git branches, with repo maintenance (GC, repack, prune), a stash browser, and multi-repo bookmarks.
 
@@ -116,26 +116,6 @@ Hardcoded defaults (always active): `main`, `master`, `develop`. The checked-out
 | Branches | `u` | Undo deletion |
 | Branches | `Ctrl+R` | Reload |
 | All | `Ctrl+B` | Bookmarks |
-
----
-
-## Project Structure
-
-```
-git-cleaner/
-├── pyproject.toml
-├── README.md
-├── src/git_cleaner/
-│   ├── __init__.py
-│   ├── __main__.py
-│   ├── cli.py           # --repo flag, launches app
-│   ├── app.py           # Textual TUI (screens, widgets, CSS)
-│   ├── config.py        # TOML loading, protected/blacklist/theme/bookmarks
-│   └── git_ops.py       # Git wrappers (branch/stash/GC ops)
-└── tests/
-    ├── test_config.py
-    └── test_git_ops.py
-```
 
 ---
 
