@@ -58,21 +58,28 @@ paths = ['C:\\path\\to\\repo']
 - Git operations use `subprocess.run` with `capture_output=True`, never `gitpython`.
 - `BranchInfo` dataclass has optional fields: `author`, `ahead`, `behind`, `has_upstream`, `commit_hash`, `is_protected`, `is_blacklisted`.
 - `list_branches()` uses a single `git for-each-ref` call with `--format` — the core perf trick.
-- Version lives only in `pyproject.toml`. Bump there, build with `uv build`, publish with `uv publish --token`.
+- Version lives only in `pyproject.toml`. Bump there, build with `uv build`, publish with `twine upload dist/*`.
 
 ## Publishing
 
 ```bash
 uv build
-$token = (Get-Content .env | Select-String "PYPI_TOKEN=(.*)" | ForEach-Object { $_.Matches.Groups[1].Value })
-$env:TWINE_USERNAME = "__token__"
-$env:TWINE_PASSWORD = $token
 twine upload dist/*
 ```
 
-Token lives in `.env` at repo root: `PYPI_TOKEN=pypi-...`. Loaded automatically by OpenCode / uv in dev sessions — no need to paste it.
+Auth uses `~/.pypirc` (not env vars):
 
-GitHub releases are automated via `.github/workflows/release.yml` — push a tag (`git tag v1.1.0 && git push origin v1.1.0`) to create a release with sdist/wheel attached.
+```ini
+[distutils]
+index-servers =
+    pypi
+
+[pypi]
+username = __token__
+password = pypi-...
+```
+
+GitHub releases are automated via `.github/workflows/release.yml` — push a tag (`git tag v1.2.0 && git push origin v1.2.0`) to create a release with sdist/wheel attached.
 
 ## graphify
 
