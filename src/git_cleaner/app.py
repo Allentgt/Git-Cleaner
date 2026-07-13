@@ -191,7 +191,7 @@ DateRangePicker {
     min-height: 3;
 }
 
-/* === Filter row: search + author === */
+/* === Filter row: search + author + age === */
 #filter-row {
     height: auto;
     margin: 0 1 1 1;
@@ -205,6 +205,18 @@ DateRangePicker {
 
 #author-select {
     width: 20;
+    min-width: 12;
+    margin: 0 0 0 1;
+}
+
+#age-label {
+    color: $text-muted;
+    width: auto;
+    margin: 0 0 0 1;
+}
+
+#age-select {
+    width: 14;
     min-width: 12;
     margin: 0 0 0 1;
 }
@@ -560,6 +572,20 @@ class BranchesContent(Vertical):
         with Horizontal(id="filter-row"):
             yield Input(placeholder="Search branches...", id="search-input")
             yield Select([], id="author-select", prompt="All authors", allow_blank=True)
+            yield Label("Max age:", id="age-label")
+            yield Select(
+                [(label, value) for label, value in [
+                    ("All", 0),
+                    ("7 days", 7),
+                    ("30 days", 30),
+                    ("90 days", 90),
+                    ("180 days", 180),
+                    ("1 year", 365),
+                ]],
+                id="age-select",
+                prompt="All ages",
+                allow_blank=True,
+            )
         yield Tree("", id="branch-table")
         yield Vertical(Static("Click a branch to see details", id="details-content"), id="details-pane")
         with Horizontal(id="action-row"):
@@ -614,7 +640,7 @@ class BranchesContent(Vertical):
 
     @on(Select.Changed)
     def _on_author_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "author-select":
+        if event.select.id in ("author-select", "age-select"):
             self._refresh_table()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -771,19 +797,28 @@ class BranchesContent(Vertical):
     def _is_stale(b: BranchInfo) -> bool:
         return (datetime.now(timezone.utc) - b.commit_date).days > 180
 
+    @staticmethod
+    def _compile_search(pattern: str) -> re.Pattern | None:
+        """Compile search pattern (regex or literal fallback)."""
+        if not pattern:
+            return None
+        try:
+            return re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            return re.compile(re.escape(pattern), re.IGNORECASE)
+
     def _filtered_branches(self) -> list[BranchInfo]:
-        """Return branches matching current search/author/filter settings."""
+        """Return branches matching current search/author/age filter settings."""
         search = self.query_one("#search-input", Input).value
         author_sel = self.query_one("#author-select", Select)
         author: str | None = author_sel.value
+        age_sel = self.query_one("#age-select", Select)
+        max_age_days: int | None = age_sel.value if age_sel.value else None
 
-        # Compile search pattern (regex or literal fallback)
-        try:
-            search_re = re.compile(search, re.IGNORECASE) if search else None
-        except re.error:
-            search_re = re.compile(re.escape(search), re.IGNORECASE)
+        search_re = self._compile_search(search)
 
         result = []
+        now = datetime.now(timezone.utc)
         for b in self.branches:
             if not self.show_protected and b.is_protected:
                 continue
@@ -793,6 +828,10 @@ class BranchesContent(Vertical):
                 continue
             if author and b.author != author:
                 continue
+            if max_age_days is not None and max_age_days > 0:
+                age_days = (now - b.commit_date).days
+                if age_days > max_age_days:
+                    continue
             result.append(b)
         return result
 
