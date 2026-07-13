@@ -42,5 +42,5 @@ def test_undo_history_binding_exists():
     """MainScreen.BINDINGS contains a binding for show_undo_history."""
     keys = [b.key for b in MainScreen.BINDINGS]
     actions = [b.action for b in MainScreen.BINDINGS]
-    assert "shift+h" in keys
+    assert "H" in keys
     assert "show_undo_history" in actions

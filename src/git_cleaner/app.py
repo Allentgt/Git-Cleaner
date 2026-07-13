@@ -597,6 +597,7 @@ class BranchesContent(Vertical):
         )
 
         tree = self.query_one("#branch-table", Tree)
+        tree.action_toggle_node = self.toggle_row  # ponytail: hijack space → selection toggle
         tree.root.expand()
 
     @on(DateRangePicker.Changed)
@@ -847,9 +848,9 @@ class BranchesContent(Vertical):
         """Return branches matching current search/author/age filter settings."""
         search = self.query_one("#search-input", Input).value
         author_sel = self.query_one("#author-select", Select)
-        author: str | None = author_sel.value
+        author: str | None = author_sel.value if isinstance(author_sel.value, str) else None
         age_sel = self.query_one("#age-select", Select)
-        max_age_days: int | None = age_sel.value if age_sel.value else None
+        max_age_days: int | None = age_sel.value if isinstance(age_sel.value, int) else None
 
         search_re = self._compile_search(search)
 
@@ -1416,11 +1417,11 @@ class MainScreen(Screen):
         Binding("r", "toggle_remote", "Toggle remote deletion"),
         Binding("ctrl+r", "reload", "Reload"),
         Binding("u", "undo_deletion", "Undo"),
-        Binding("shift+u", "undo_all", "Undo all"),
+        Binding("U", "undo_all", "Undo all"),
         Binding("ctrl+b", "bookmarks", "Bookmarks"),
         Binding("question", "show_help", "Help"),
         Binding("h", "show_help", "Help"),
-        Binding("shift+h", "show_undo_history", "Undo history"),
+        Binding("H", "show_undo_history", "Undo history"),
     ]
 
     def __init__(self, repo_path: Path) -> None:
@@ -1505,6 +1506,9 @@ class ConfirmationDialog(ModalScreen[bool]):
             ),
             id="dialog",
         )
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm", Button).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "confirm":
