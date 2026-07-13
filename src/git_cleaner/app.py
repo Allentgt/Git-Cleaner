@@ -743,6 +743,16 @@ class BranchesContent(Vertical):
             indicators.append(f"-{branch.behind}")
         return " ".join(indicators) if indicators else ""
 
+    @staticmethod
+    def _get_status_badge(branch: BranchInfo) -> str:
+        """Return status badge string based on branch classification."""
+        badges = []
+        if branch.is_protected:
+            badges.append("protected")
+        if branch.is_blacklisted:
+            badges.append("blacklisted")
+        return " ".join(badges) if badges else ""
+
     def _add_branch_node(self, parent, b: BranchInfo) -> None:
         """Add a branch leaf node to a tree parent."""
         selected = b.name in self.selected
@@ -752,7 +762,10 @@ class BranchesContent(Vertical):
         age_color = self._get_staleness_color(b.commit_date)
         stale = " [red]! stale[/]" if self._is_stale(b) else ""
         health = self._get_health_indicator(b)
+        badge = self._get_status_badge(b)
         name_display = f"{b.name} [dim]{health}[/]" if health else b.name
+        if badge:
+            name_display = f"{name_display} [yellow]({badge})[/]"
         label = f"{checked}[bold]{name_display}[/]  [{age_color}]{age}[/]  [dim]{upstream}[/]{stale}"
         parent.add(label, data=b.name)
 
@@ -1401,6 +1414,7 @@ class MainScreen(Screen):
         Binding("ctrl+b", "bookmarks", "Bookmarks"),
         Binding("question", "show_help", "Help"),
         Binding("h", "show_help", "Help"),
+        Binding("shift+h", "show_undo_history", "Undo history"),
     ]
 
     def __init__(self, repo_path: Path) -> None:
@@ -1450,6 +1464,11 @@ class MainScreen(Screen):
 
     def action_show_help(self) -> None:
         self.app.push_screen(HelpOverlay())
+
+    def action_show_undo_history(self) -> None:
+        """Show undo history modal."""
+        branches = self.query_one(BranchesContent)
+        self.app.push_screen(UndoHistory(branches._undo_stack))
 
     def _on_switch_repo(self, path: str | None) -> None:
         if path:
@@ -1602,6 +1621,48 @@ class HelpOverlay(ModalScreen[None]):
             ))
         items.append(Static("[escape] Close", classes="help-item"))
         yield Vertical(*items, id="help-container")
+
+    def on_key(self, event: Key) -> None:
+        """Close overlay on any key press."""
+        self.dismiss()
+
+
+class UndoHistory(ModalScreen[None]):
+    """Modal screen showing undo history — what branches can be restored."""
+
+    CSS = """
+    UndoHistory {
+        align: center middle;
+    }
+
+    #undo-history-container {
+        width: 60;
+        max-height: 80%;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #undo-history-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    """
+
+    def __init__(self, undo_stack: list[dict[str, str]]) -> None:
+        super().__init__()
+        self.undo_stack = undo_stack
+
+    def compose(self) -> ComposeResult:
+        items = [Label("Undo History", id="undo-history-title")]
+        for i, entry in enumerate(reversed(self.undo_stack), 1):
+            for branch, _hash in entry.items():
+                items.append(Static(f"{i}. {branch}"))
+        if not self.undo_stack:
+            items.append(Static("Nothing to undo."))
+        items.append(Static("\nPress any key to close"))
+        yield Vertical(*items, id="undo-history-container")
 
     def on_key(self, event: Key) -> None:
         """Close overlay on any key press."""
