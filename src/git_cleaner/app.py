@@ -945,6 +945,27 @@ class BranchesContent(Vertical):
         self.notify(" ".join(parts), timeout=5)
         asyncio.ensure_future(self._load_branches())
 
+    def undo_all(self) -> None:
+        """Restore all deleted branches from the undo stack."""
+        if not self._undo_stack:
+            self.notify("Nothing to undo", severity="information", timeout=3)
+            return
+        ok, fail = 0, 0
+        while self._undo_stack:
+            entry = self._pop_undo()
+            if entry:
+                for name, hash_val in list(entry.items()):
+                    success, msg = restore_branch(self.repo_path, name, hash_val)
+                    if success:
+                        ok += 1
+                    else:
+                        fail += 1
+        parts = [f"Restored {ok} branch(es)"]
+        if fail:
+            parts.append(f"{fail} failed")
+        self.notify(" ".join(parts), timeout=5)
+        asyncio.ensure_future(self._load_branches())
+
     # ── Row selection actions ────────────────────────────────────────────
 
     def toggle_row(self) -> None:
@@ -1411,6 +1432,7 @@ class MainScreen(Screen):
         Binding("r", "toggle_remote", "Toggle remote deletion"),
         Binding("ctrl+r", "reload", "Reload"),
         Binding("u", "undo_deletion", "Undo"),
+        Binding("shift+u", "undo_all", "Undo all"),
         Binding("ctrl+b", "bookmarks", "Bookmarks"),
         Binding("question", "show_help", "Help"),
         Binding("h", "show_help", "Help"),
@@ -1458,6 +1480,10 @@ class MainScreen(Screen):
 
     def action_undo_deletion(self) -> None:
         self.query_one(BranchesContent).undo_deletion()
+
+    def action_undo_all(self) -> None:
+        """Undo all delete operations."""
+        self.query_one(BranchesContent).undo_all()
 
     def action_bookmarks(self) -> None:
         self.app.push_screen(RepoSwitcher(self.repo_path), self._on_switch_repo)
