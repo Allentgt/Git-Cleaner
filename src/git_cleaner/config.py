@@ -101,7 +101,7 @@ def save_bookmarks(bookmarks: list[str]) -> None:
             in_section = False
         if not in_section:
             out.append(line)
-    quoted = [f'"{p}"' for p in bookmarks]
+    quoted = [f"'{p}'" for p in bookmarks]
     out += ["", "[bookmarks]", f"paths = [{', '.join(quoted)}]"]
     _GLOBAL_CFG.write_text("\n".join(out) + "\n")
 
