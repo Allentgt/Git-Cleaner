@@ -986,19 +986,19 @@ class MaintenanceContent(Vertical):
             yield Label("Maintenance Tasks", classes="section-title")
             with Vertical(id="task-buttons"):
                 with Horizontal(classes="task-row"):
-                    yield Button("Git GC", id="gc-btn", classes="task-button", variant="primary",
-                                 tooltip="git gc — Compress revisions, remove loose objects.")
-                    yield Button("GC Aggressive", id="gc-agg-btn", classes="task-button", variant="warning",
-                                 tooltip="git gc --aggressive — Deep optimization; run quarterly.")
-                    yield Button("Repack", id="repack-btn", classes="task-button", variant="primary",
-                                 tooltip="git repack -Ad — Reorganize pack files.")
-                with Horizontal(classes="task-row"):
                     yield Button("Prune Remote", id="prune-btn", classes="task-button", variant="default",
                                  tooltip="git remote prune origin — Remove stale remote-tracking refs.")
                     yield Button("Expire Reflog", id="reflog-btn", classes="task-button", variant="default",
                                  tooltip="git reflog expire --expire=90.days.ago")
+                    yield Button("Repack", id="repack-btn", classes="task-button", variant="primary",
+                                 tooltip="git repack -Ad — Reorganize pack files.")
+                with Horizontal(classes="task-row"):
+                    yield Button("Git GC", id="gc-btn", classes="task-button", variant="primary",
+                                 tooltip="git gc — Compress revisions, remove loose objects.")
+                    yield Button("GC Aggressive", id="gc-agg-btn", classes="task-button", variant="warning",
+                                 tooltip="git gc --aggressive — Deep optimization; run quarterly.")
                     yield Button("Run All", id="all-btn", classes="task-button", variant="error",
-                                 tooltip="Run GC, Repack, Prune Remote, and Expire Reflog in sequence.")
+                                 tooltip="Run Prune, Reflog, Repack, and GC in sequence.")
 
         yield RichLog(id="task-output", highlight=True, markup=True, max_lines=100)
 
@@ -1205,10 +1205,10 @@ class MaintenanceContent(Vertical):
 
     def _run_all_tasks(self, on_output) -> tuple[bool, str]:
         subtasks = [
-            ("GC", lambda p: run_gc(p, on_output=on_output)),
-            ("Repack", lambda p: repack_objects(p, on_output=on_output)),
             ("Prune", lambda p: prune_remote(p, on_output=on_output)),
             ("Reflog", lambda p: expire_reflog(p, on_output=on_output)),
+            ("Repack", lambda p: repack_objects(p, on_output=on_output)),
+            ("GC", lambda p: run_gc(p, on_output=on_output)),
         ]
         results: list[str] = []
         all_ok = True
