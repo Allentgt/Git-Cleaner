@@ -8,7 +8,7 @@ dependencies = [
     "textual",
     "textual-timepiece>=0.7.0",
 ]
-authors = [{ name = "git-cleaner" }]
+authors = [{ name = "allentgt" }]
 
 [project.scripts]
 git-cleaner-tui = "git_cleaner.cli:main"
