@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
@@ -772,16 +773,23 @@ class BranchesContent(Vertical):
 
     def _filtered_branches(self) -> list[BranchInfo]:
         """Return branches matching current search/author/filter settings."""
-        search = self.query_one("#search-input", Input).value.lower()
+        search = self.query_one("#search-input", Input).value
         author_sel = self.query_one("#author-select", Select)
         author: str | None = author_sel.value
+
+        # Compile search pattern (regex or literal fallback)
+        try:
+            search_re = re.compile(search, re.IGNORECASE) if search else None
+        except re.error:
+            search_re = re.compile(re.escape(search), re.IGNORECASE)
+
         result = []
         for b in self.branches:
             if not self.show_protected and b.is_protected:
                 continue
             if not self.show_blacklisted and b.is_blacklisted:
                 continue
-            if search and search not in b.name.lower():
+            if search_re and not search_re.search(b.name):
                 continue
             if author and b.author != author:
                 continue
