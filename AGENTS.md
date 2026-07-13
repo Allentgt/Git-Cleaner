@@ -72,7 +72,7 @@ twine upload dist/*
 
 Token lives in `.env` at repo root: `PYPI_TOKEN=pypi-...`. Loaded automatically by OpenCode / uv in dev sessions — no need to paste it.
 
-GitHub releases are automated via `.github/workflows/release.yml` — push a tag (`git tag v2.4.0 && git push origin v2.4.0`) to create a release with sdist/wheel attached.
+GitHub releases are automated via `.github/workflows/release.yml` — push a tag (`git tag v1.1.0 && git push origin v1.1.0`) to create a release with sdist/wheel attached.
 
 ## graphify
 
