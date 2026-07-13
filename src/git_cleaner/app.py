@@ -210,14 +210,8 @@ DateRangePicker {
     margin: 0 0 0 1;
 }
 
-#age-label {
-    color: $text-muted;
-    width: auto;
-    margin: 0 0 0 1;
-}
-
 #age-select {
-    width: 14;
+    width: 16;
     min-width: 12;
     margin: 0 0 0 1;
 }
@@ -573,7 +567,6 @@ class BranchesContent(Vertical):
         with Horizontal(id="filter-row"):
             yield Input(placeholder="Search branches...", id="search-input")
             yield Select([], id="author-select", prompt="All authors", allow_blank=True)
-            yield Label("Max age:", id="age-label")
             yield Select(
                 [("7 days", 7), ("30 days", 30), ("90 days", 90), ("180 days", 180), ("1 year", 365)],
                 id="age-select",
@@ -926,45 +919,36 @@ class BranchesContent(Vertical):
             return None
         return self._undo_stack.pop()
 
-    def undo_deletion(self) -> None:
-        """Restore the last batch of deleted branches."""
-        entry = self._pop_undo()
-        if entry is None:
-            self.notify("Nothing to undo", severity="information", timeout=3)
-            return
+    def _restore_entries(self, entries: list[dict[str, str]]) -> None:
+        """Restore a list of undo entries and notify the result."""
         ok, fail = 0, 0
-        for name, hash_val in list(entry.items()):
-            success, msg = restore_branch(self.repo_path, name, hash_val)
-            if success:
-                ok += 1
-            else:
-                fail += 1
+        for entry in entries:
+            for name, hash_val in entry.items():
+                success, _ = restore_branch(self.repo_path, name, hash_val)
+                ok += success
+                fail += not success
         parts = [f"Restored {ok} branch(es)"]
         if fail:
             parts.append(f"{fail} failed")
         self.notify(" ".join(parts), timeout=5)
         asyncio.ensure_future(self._load_branches())
 
+    def undo_deletion(self) -> None:
+        """Restore the last batch of deleted branches."""
+        entry = self._pop_undo()
+        if entry is None:
+            self.notify("Nothing to undo", severity="information", timeout=3)
+            return
+        self._restore_entries([entry])
+
     def undo_all(self) -> None:
         """Restore all deleted branches from the undo stack."""
         if not self._undo_stack:
             self.notify("Nothing to undo", severity="information", timeout=3)
             return
-        ok, fail = 0, 0
-        while self._undo_stack:
-            entry = self._pop_undo()
-            if entry:
-                for name, hash_val in list(entry.items()):
-                    success, msg = restore_branch(self.repo_path, name, hash_val)
-                    if success:
-                        ok += 1
-                    else:
-                        fail += 1
-        parts = [f"Restored {ok} branch(es)"]
-        if fail:
-            parts.append(f"{fail} failed")
-        self.notify(" ".join(parts), timeout=5)
-        asyncio.ensure_future(self._load_branches())
+        entries = list(reversed(self._undo_stack))
+        self._undo_stack.clear()
+        self._restore_entries(entries)
 
     # ── Row selection actions ────────────────────────────────────────────
 
