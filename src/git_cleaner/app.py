@@ -954,6 +954,31 @@ class BranchesContent(Vertical):
         self._build_tree()
         self._update_status()
 
+    def select_by_author(self) -> None:
+        """Select all branches matching the current author filter.
+
+        Note: this is add-only (not a toggle), so pressing Shift+A
+        repeatedly is idempotent. Use Ctrl+A to deselect all.
+        """
+        author_sel = self.query_one("#author-select", Select)
+        author = author_sel.value if author_sel.value else None
+        if not author:
+            self.notify("No author filter set", severity="warning")
+            return
+        filtered = self._filtered_branches()
+        to_select = [b for b in filtered if not b.is_protected and not b.is_blacklisted]
+        for b in to_select:
+            self.selected.add(b.name)
+        self._build_tree()
+        self._update_status()
+        self.notify(f"Selected {len(to_select)} branches by {author}")
+
+    def _on_delete_progress(self, current: int, total: int, branch: str) -> None:
+        """Update status bar during batch delete."""
+        self.query_one("#status-bar", Static).update(
+            f"Deleting {current}/{total}: {branch}"
+        )
+
     def delete_selected(self) -> None:
         if not self.selected:
             return
@@ -978,14 +1003,22 @@ class BranchesContent(Vertical):
         def handle_confirmation(confirmed: bool) -> None:
             if confirmed:
                 self._push_undo(hashes)
-                failed_local = delete_branches(self.repo_path, to_delete)
+                total = len(to_delete)
+                failed_local: list[str] = []
+                for i, name in enumerate(to_delete, 1):
+                    self._on_delete_progress(i, total, name)
+                    result = delete_branches(self.repo_path, [name])
+                    if result:
+                        failed_local.extend(result)
                 failed_remote: list[str] = []
                 if self.delete_remote:
                     remote_targets = [n for n in to_delete if n not in failed_local]
-                    if remote_targets:
-                        failed_remote = delete_remote_branches(
-                            self.repo_path, remote_targets
-                        )
+                    remote_total = len(remote_targets)
+                    for i, name in enumerate(remote_targets, 1):
+                        self._on_delete_progress(i, remote_total, f"{name} (remote)")
+                        result = delete_remote_branches(self.repo_path, [name])
+                        if result:
+                            failed_remote.extend(result)
                 all_failed = list(set(failed_local + failed_remote))
                 if all_failed:
                     self.query_one("#status-bar", Static).update(
@@ -1362,6 +1395,7 @@ class MainScreen(Screen):
     BINDINGS = [
         Binding("space", "toggle_row", "Toggle selection"),
         Binding("a", "select_all", "Select all"),
+        Binding("shift+a", "select_by_author", "Select by author"),
         Binding("d", "delete_selected", "Delete selected"),
         Binding("p", "toggle_protected", "Toggle protected visibility"),
         Binding("b", "toggle_blacklisted", "Toggle blacklisted visibility"),
@@ -1396,6 +1430,9 @@ class MainScreen(Screen):
 
     def action_select_all(self) -> None:
         self.query_one(BranchesContent).select_all()
+
+    def action_select_by_author(self) -> None:
+        self.query_one(BranchesContent).select_by_author()
 
     def action_delete_selected(self) -> None:
         self.query_one(BranchesContent).delete_selected()
