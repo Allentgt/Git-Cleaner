@@ -731,6 +731,18 @@ class BranchesContent(Vertical):
             parts.append(f"↓{b.behind}")
         return " ".join(parts)
 
+    @staticmethod
+    def _get_health_indicator(branch: BranchInfo) -> str:
+        """Return health indicator string based on branch status."""
+        indicators = []
+        if branch.is_current:
+            indicators.append("@")
+        if branch.ahead and branch.ahead > 0:
+            indicators.append(f"+{branch.ahead}")
+        if branch.behind and branch.behind > 0:
+            indicators.append(f"-{branch.behind}")
+        return " ".join(indicators) if indicators else ""
+
     def _add_branch_node(self, parent, b: BranchInfo) -> None:
         """Add a branch leaf node to a tree parent."""
         selected = b.name in self.selected
@@ -739,7 +751,9 @@ class BranchesContent(Vertical):
         age = _age_from(b.commit_date)
         age_color = self._get_staleness_color(b.commit_date)
         stale = " [red]! stale[/]" if self._is_stale(b) else ""
-        label = f"{checked}[bold]{b.name}[/]  [{age_color}]{age}[/]  [dim]{upstream}[/]{stale}"
+        health = self._get_health_indicator(b)
+        name_display = f"{b.name} [dim]{health}[/]" if health else b.name
+        label = f"{checked}[bold]{name_display}[/]  [{age_color}]{age}[/]  [dim]{upstream}[/]{stale}"
         parent.add(label, data=b.name)
 
     def _build_tree(self) -> None:
@@ -954,25 +968,6 @@ class BranchesContent(Vertical):
         self._build_tree()
         self._update_status()
 
-    def select_by_author(self) -> None:
-        """Select all branches matching the current author filter.
-
-        Note: this is add-only (not a toggle), so pressing Shift+A
-        repeatedly is idempotent. Use Ctrl+A to deselect all.
-        """
-        author_sel = self.query_one("#author-select", Select)
-        author = author_sel.value if author_sel.value else None
-        if not author:
-            self.notify("No author filter set", severity="warning")
-            return
-        filtered = self._filtered_branches()
-        to_select = [b for b in filtered if not b.is_protected and not b.is_blacklisted]
-        for b in to_select:
-            self.selected.add(b.name)
-        self._build_tree()
-        self._update_status()
-        self.notify(f"Selected {len(to_select)} branches by {author}")
-
     def _on_delete_progress(self, current: int, total: int, branch: str) -> None:
         """Update status bar during batch delete."""
         self.query_one("#status-bar", Static).update(
@@ -1000,13 +995,14 @@ class BranchesContent(Vertical):
             b.name: b.commit_hash for b in self.branches if b.name in to_delete and b.commit_hash
         }
 
-        def handle_confirmation(confirmed: bool) -> None:
+        async def handle_confirmation(confirmed: bool) -> None:
             if confirmed:
                 self._push_undo(hashes)
                 total = len(to_delete)
                 failed_local: list[str] = []
                 for i, name in enumerate(to_delete, 1):
                     self._on_delete_progress(i, total, name)
+                    await asyncio.sleep(0)  # yield to let Textual render
                     result = delete_branches(self.repo_path, [name])
                     if result:
                         failed_local.extend(result)
@@ -1016,6 +1012,7 @@ class BranchesContent(Vertical):
                     remote_total = len(remote_targets)
                     for i, name in enumerate(remote_targets, 1):
                         self._on_delete_progress(i, remote_total, f"{name} (remote)")
+                        await asyncio.sleep(0)  # yield to let Textual render
                         result = delete_remote_branches(self.repo_path, [name])
                         if result:
                             failed_remote.extend(result)
@@ -1395,7 +1392,6 @@ class MainScreen(Screen):
     BINDINGS = [
         Binding("space", "toggle_row", "Toggle selection"),
         Binding("a", "select_all", "Select all"),
-        Binding("shift+a", "select_by_author", "Select by author"),
         Binding("d", "delete_selected", "Delete selected"),
         Binding("p", "toggle_protected", "Toggle protected visibility"),
         Binding("b", "toggle_blacklisted", "Toggle blacklisted visibility"),
@@ -1430,9 +1426,6 @@ class MainScreen(Screen):
 
     def action_select_all(self) -> None:
         self.query_one(BranchesContent).select_all()
-
-    def action_select_by_author(self) -> None:
-        self.query_one(BranchesContent).select_by_author()
 
     def action_delete_selected(self) -> None:
         self.query_one(BranchesContent).delete_selected()
