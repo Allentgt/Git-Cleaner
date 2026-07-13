@@ -1358,6 +1358,8 @@ class MainScreen(Screen):
         Binding("ctrl+r", "reload", "Reload"),
         Binding("u", "undo_deletion", "Undo"),
         Binding("ctrl+b", "bookmarks", "Bookmarks"),
+        Binding("question", "show_help", "Help"),
+        Binding("h", "show_help", "Help"),
     ]
 
     def __init__(self, repo_path: Path) -> None:
@@ -1404,6 +1406,9 @@ class MainScreen(Screen):
 
     def action_bookmarks(self) -> None:
         self.app.push_screen(RepoSwitcher(self.repo_path), self._on_switch_repo)
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(HelpOverlay())
 
     def _on_switch_repo(self, path: str | None) -> None:
         if path:
@@ -1482,6 +1487,72 @@ class RepoSwitcher(ModalScreen[str | None]):
             self.app.notify("Bookmark removed")
         elif btn_id == "repo-close":
             self.dismiss(None)
+
+
+class HelpOverlay(ModalScreen[None]):
+    """Modal screen showing all keyboard shortcuts."""
+
+    CSS = """
+    HelpOverlay {
+        align: center middle;
+    }
+
+    #help-container {
+        width: 70;
+        max-height: 80%;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #help-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    .help-section-title {
+        text-style: bold;
+        margin-bottom: 0;
+    }
+
+    .help-item {
+        margin: 0;
+        padding-left: 2;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("Keyboard Shortcuts", id="help-title"),
+            Static("Navigation", classes="help-section-title"),
+            Static("[up/k] Move up", classes="help-item"),
+            Static("[down/j] Move down", classes="help-item"),
+            Static("[pageup] Page up", classes="help-item"),
+            Static("[pagedown] Page down", classes="help-item"),
+            Static("[home/g] Go to top", classes="help-item"),
+            Static("[end/G] Go to bottom", classes="help-item"),
+            Static("Selection", classes="help-section-title"),
+            Static("[space] Toggle select", classes="help-item"),
+            Static("[enter] Expand/collapse branch", classes="help-item"),
+            Static("[a] Select all visible", classes="help-item"),
+            Static("[c] Clear selection", classes="help-item"),
+            Static("Actions", classes="help-section-title"),
+            Static("[d/Delete] Delete selected", classes="help-item"),
+            Static("[u] Undo last delete", classes="help-item"),
+            Static("[shift+u] Undo all", classes="help-item"),
+            Static("[r] Refresh branches", classes="help-item"),
+            Static("Filters", classes="help-section-title"),
+            Static("[/] Focus search", classes="help-item"),
+            Static("[escape] Clear search / Close", classes="help-item"),
+            Static("[?] or [h] Show this help", classes="help-item"),
+            Static("[q] Quit", classes="help-item"),
+            id="help-container",
+        )
+
+    def on_key(self, event) -> None:
+        """Close overlay on any key press."""
+        self.dismiss()
 
 
 class GitCleanerApp(App):
