@@ -574,14 +574,7 @@ class BranchesContent(Vertical):
             yield Select([], id="author-select", prompt="All authors", allow_blank=True)
             yield Label("Max age:", id="age-label")
             yield Select(
-                [(label, value) for label, value in [
-                    ("All", 0),
-                    ("7 days", 7),
-                    ("30 days", 30),
-                    ("90 days", 90),
-                    ("180 days", 180),
-                    ("1 year", 365),
-                ]],
+                [("7 days", 7), ("30 days", 30), ("90 days", 90), ("180 days", 180), ("1 year", 365)],
                 id="age-select",
                 prompt="All ages",
                 allow_blank=True,
@@ -639,7 +632,7 @@ class BranchesContent(Vertical):
             self._refresh_table()
 
     @on(Select.Changed)
-    def _on_author_changed(self, event: Select.Changed) -> None:
+    def _on_filter_changed(self, event: Select.Changed) -> None:
         if event.select.id in ("author-select", "age-select"):
             self._refresh_table()
 
@@ -743,8 +736,9 @@ class BranchesContent(Vertical):
         checked = "✓ " if selected else "  "
         upstream = self._upstream_str(b)
         age = _age_from(b.commit_date)
+        age_color = self._get_staleness_color(b.commit_date)
         stale = " [red]! stale[/]" if self._is_stale(b) else ""
-        label = f"{checked}[bold]{b.name}[/]  [dim]{age}  {upstream}[/]{stale}"
+        label = f"{checked}[bold]{b.name}[/]  [{age_color}]{age}[/]  [dim]{upstream}[/]{stale}"
         parent.add(label, data=b.name)
 
     def _build_tree(self) -> None:
@@ -807,6 +801,27 @@ class BranchesContent(Vertical):
         except re.error:
             return re.compile(re.escape(pattern), re.IGNORECASE)
 
+    @staticmethod
+    def _get_staleness_color(commit_date: datetime) -> str:
+        """Return color name based on commit age.
+
+        Green: < 30 days, Yellow: 30-90 days, Red: > 90 days.
+        """
+        age_days = (datetime.now(timezone.utc) - commit_date).days
+        if age_days < 30:
+            return "green"
+        if age_days < 90:
+            return "yellow"
+        return "red"
+
+    @staticmethod
+    def _is_within_age_limit(commit_date: datetime, max_age_days: int | None) -> bool:
+        """Return True if branch age is within the given limit (or no limit set)."""
+        if max_age_days is None or max_age_days <= 0:
+            return True
+        age_days = (datetime.now(timezone.utc) - commit_date).days
+        return age_days <= max_age_days
+
     def _filtered_branches(self) -> list[BranchInfo]:
         """Return branches matching current search/author/age filter settings."""
         search = self.query_one("#search-input", Input).value
@@ -818,7 +833,6 @@ class BranchesContent(Vertical):
         search_re = self._compile_search(search)
 
         result = []
-        now = datetime.now(timezone.utc)
         for b in self.branches:
             if not self.show_protected and b.is_protected:
                 continue
@@ -828,10 +842,8 @@ class BranchesContent(Vertical):
                 continue
             if author and b.author != author:
                 continue
-            if max_age_days is not None and max_age_days > 0:
-                age_days = (now - b.commit_date).days
-                if age_days > max_age_days:
-                    continue
+            if not self._is_within_age_limit(b.commit_date, max_age_days):
+                continue
             result.append(b)
         return result
 
