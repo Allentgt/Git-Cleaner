@@ -6,6 +6,7 @@ from pathlib import Path
 import whenever
 
 from textual import on
+from textual.events import Key
 from textual.app import App, ComposeResult
 from textual.screen import Screen, ModalScreen
 from textual.widgets import (
@@ -558,7 +559,7 @@ class BranchesContent(Vertical):
         self.show_blacklisted = False
         self.delete_remote = False
         self.dry_run = False
-        self._deleted_branches: dict[str, str] = {}
+        self._undo_stack: list[dict[str, str]] = []
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -888,13 +889,24 @@ class BranchesContent(Vertical):
         btn.variant = "success" if self.dry_run else "primary"
         self._update_status()
 
+    def _push_undo(self, entry: dict[str, str]) -> None:
+        """Push a batch of deleted branches onto the undo stack."""
+        self._undo_stack.append(entry)
+
+    def _pop_undo(self) -> dict[str, str] | None:
+        """Pop and return the last undo entry, or None if empty."""
+        if not self._undo_stack:
+            return None
+        return self._undo_stack.pop()
+
     def undo_deletion(self) -> None:
         """Restore the last batch of deleted branches."""
-        if not self._deleted_branches:
+        entry = self._pop_undo()
+        if entry is None:
             self.notify("Nothing to undo", severity="information", timeout=3)
             return
         ok, fail = 0, 0
-        for name, hash_val in list(self._deleted_branches.items()):
+        for name, hash_val in list(entry.items()):
             success, msg = restore_branch(self.repo_path, name, hash_val)
             if success:
                 ok += 1
@@ -903,7 +915,6 @@ class BranchesContent(Vertical):
         parts = [f"Restored {ok} branch(es)"]
         if fail:
             parts.append(f"{fail} failed")
-        self._deleted_branches.clear()
         self.notify(" ".join(parts), timeout=5)
         asyncio.ensure_future(self._load_branches())
 
@@ -966,7 +977,7 @@ class BranchesContent(Vertical):
 
         def handle_confirmation(confirmed: bool) -> None:
             if confirmed:
-                self._deleted_branches = hashes
+                self._push_undo(hashes)
                 failed_local = delete_branches(self.repo_path, to_delete)
                 failed_remote: list[str] = []
                 if self.delete_remote:
@@ -1490,7 +1501,10 @@ class RepoSwitcher(ModalScreen[str | None]):
 
 
 class HelpOverlay(ModalScreen[None]):
-    """Modal screen showing all keyboard shortcuts."""
+    """Modal screen showing all keyboard shortcuts.
+
+    Generates content from MainScreen.BINDINGS so it stays in sync.
+    """
 
     CSS = """
     HelpOverlay {
@@ -1522,35 +1536,44 @@ class HelpOverlay(ModalScreen[None]):
     }
     """
 
+    # ponytail: navigation keys are DataTable built-ins, not in MainScreen.BINDINGS
+    _NAV_HELP = [
+        "[up/k] Move up",
+        "[down/j] Move down",
+        "[pageup] Page up",
+        "[pagedown] Page down",
+        "[home/g] Go to top",
+        "[end/G] Go to bottom",
+    ]
+
+    @staticmethod
+    def _format_key(key: str) -> str:
+        """Format a textual key name into a human-readable label."""
+        return f"[{key}]"
+
     def compose(self) -> ComposeResult:
-        yield Vertical(
+        items = [
             Label("Keyboard Shortcuts", id="help-title"),
             Static("Navigation", classes="help-section-title"),
-            Static("[up/k] Move up", classes="help-item"),
-            Static("[down/j] Move down", classes="help-item"),
-            Static("[pageup] Page up", classes="help-item"),
-            Static("[pagedown] Page down", classes="help-item"),
-            Static("[home/g] Go to top", classes="help-item"),
-            Static("[end/G] Go to bottom", classes="help-item"),
-            Static("Selection", classes="help-section-title"),
-            Static("[space] Toggle select", classes="help-item"),
-            Static("[enter] Expand/collapse branch", classes="help-item"),
-            Static("[a] Select all visible", classes="help-item"),
-            Static("[c] Clear selection", classes="help-item"),
-            Static("Actions", classes="help-section-title"),
-            Static("[d/Delete] Delete selected", classes="help-item"),
-            Static("[u] Undo last delete", classes="help-item"),
-            Static("[shift+u] Undo all", classes="help-item"),
-            Static("[r] Refresh branches", classes="help-item"),
-            Static("Filters", classes="help-section-title"),
-            Static("[/] Focus search", classes="help-item"),
-            Static("[escape] Clear search / Close", classes="help-item"),
-            Static("[?] or [h] Show this help", classes="help-item"),
-            Static("[q] Quit", classes="help-item"),
-            id="help-container",
-        )
+        ]
+        for line in self._NAV_HELP:
+            items.append(Static(line, classes="help-item"))
 
-    def on_key(self, event) -> None:
+        items.append(Static("Actions", classes="help-section-title"))
+        for binding in MainScreen.BINDINGS:
+            if binding.key == "question":
+                continue  # merged into h below
+            if binding.key == "h":
+                items.append(Static(f"[?] or [h] {binding.description}", classes="help-item"))
+                continue
+            items.append(Static(
+                f"{self._format_key(binding.key)} {binding.description}",
+                classes="help-item",
+            ))
+        items.append(Static("[escape] Close", classes="help-item"))
+        yield Vertical(*items, id="help-container")
+
+    def on_key(self, event: Key) -> None:
         """Close overlay on any key press."""
         self.dismiss()
 
