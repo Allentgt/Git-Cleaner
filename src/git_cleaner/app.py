@@ -1924,6 +1924,14 @@ class HelpOverlay(ModalScreen[None]):
                 f"{self._format_key(binding.key)} {binding.description}",
                 classes="help-item",
             ))
+        items.append(Static("Compare Tab", classes="help-section-title"))
+        items.append(Static("[Tab] Switch to Compare tab", classes="help-item"))
+        items.append(Static("Select base & target branches, press Compare", classes="help-item"))
+
+        items.append(Static("Worktrees Tab", classes="help-section-title"))
+        items.append(Static("[Tab] Switch to Worktrees tab", classes="help-item"))
+        items.append(Static("[Enter] Select worktree row", classes="help-item"))
+
         items.append(Static("[escape] Close", classes="help-item"))
         yield Vertical(*items, id="help-container")
 
