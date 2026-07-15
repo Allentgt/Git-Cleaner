@@ -1454,7 +1454,8 @@ class CompareContent(Vertical):
             yield Select([], id="compare-base", prompt="Select base branch", allow_blank=True)
             yield Label("Compare:")
             yield Select([], id="compare-target", prompt="Select target branch", allow_blank=True)
-            yield Button("Compare", id="compare-run", variant="primary")
+        with Horizontal(classes="task-row"):
+            yield Button("Compare", id="compare-run", classes="task-button", variant="primary")
         yield Label("", id="compare-summary")
         yield Static("Select two branches and press Compare.", id="compare-result")
 
@@ -1590,13 +1591,6 @@ class WorktreesContent(Vertical):
     #wt-table {
         height: 1fr;
     }
-    #wt-actions {
-        height: 3;
-        padding: 0 1;
-    }
-    #wt-actions Button {
-        margin: 0 1;
-    }
     #wt-status {
         height: 1;
         padding: 0 1;
@@ -1611,11 +1605,11 @@ class WorktreesContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="wt-table")
-        with Horizontal(id="wt-actions"):
-            yield Button("Add", id="wt-add", variant="primary")
-            yield Button("Remove", id="wt-remove", variant="error")
-            yield Button("Prune", id="wt-prune", variant="warning")
-            yield Button("Refresh", id="wt-refresh", variant="default")
+        with Horizontal(classes="task-row"):
+            yield Button("Add", id="wt-add", classes="task-button", variant="primary")
+            yield Button("Remove", id="wt-remove", classes="task-button", variant="error")
+            yield Button("Prune", id="wt-prune", classes="task-button", variant="warning")
+            yield Button("Refresh", id="wt-refresh", classes="task-button", variant="default")
         yield Static(id="wt-status")
 
     def on_mount(self) -> None:
