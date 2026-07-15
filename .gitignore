@@ -29,5 +29,11 @@ Thumbs.db
 
 # Project
 docs/superpowers/
-
+graphify*
+.graphify*
+docs/
 AGENTS.md
+.opencode/plugins
+.slim/deepwork
+.superpowers/brainstorm
+opencode.json
