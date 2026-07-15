@@ -72,6 +72,10 @@ from git_cleaner.git_ops import (
     repack_objects,
     prune_remote,
     expire_reflog,
+    get_merge_base,
+    get_diff_stat,
+    get_shortstat,
+    get_commits_between,
 )
 
 
@@ -1360,6 +1364,7 @@ class StashContent(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one("#stash-table", DataTable)
+        table.cursor_type = "row"
         table.add_columns("Ref", "Branch", "Message", "Date")
         self._load_stashes()
 
@@ -1372,14 +1377,12 @@ class StashContent(Vertical):
             table.add_row(s.ref, s.branch or "—", msg, s.date.strftime("%Y-%m-%d"))
         self.query_one("#stash-status", Static).update(f"{len(self.stashes)} stash(es)")
 
-    @on(DataTable.RowHighlighted)
-    def _on_stash_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        if event.row_key is None:
-            self._selected_ref = None
-            return
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         row = self.query_one("#stash-table", DataTable).get_row(event.row_key)
         if row:
             self._selected_ref = str(row[0])
+        else:
+            self._selected_ref = None
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -1403,6 +1406,109 @@ class StashContent(Vertical):
             status.update(msg)
             if ok:
                 self._load_stashes()
+
+
+class CompareContent(Vertical):
+    """Compare tab: select two branches and see their diff."""
+
+    CSS = """
+    CompareContent {
+        height: 1fr;
+    }
+    #compare-select-row {
+        height: 3;
+        padding: 0 1;
+    }
+    #compare-select-row > Label {
+        width: auto;
+        margin: 0 1 0 0;
+    }
+    #compare-select-row > Select {
+        width: 1fr;
+    }
+    #compare-result {
+        height: 1fr;
+        overflow-y: auto;
+        padding: 0 1;
+    }
+    #compare-summary {
+        height: auto;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        self.branch_names: list[str] = []
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="compare-select-row"):
+            yield Label("Base:")
+            yield Select([], id="compare-base", prompt="Select base branch", allow_blank=True)
+            yield Label("Compare:")
+            yield Select([], id="compare-target", prompt="Select target branch", allow_blank=True)
+            yield Button("Compare", id="compare-run", variant="primary")
+        yield Label("", id="compare-summary")
+        yield Static("Select two branches and press Compare.", id="compare-result")
+
+    def on_mount(self) -> None:
+        self._load_branch_names()
+
+    def _load_branch_names(self) -> None:
+        branches = list_branches(self.repo_path)
+        self.branch_names = [b.name for b in branches]
+        base_sel = self.query_one("#compare-base", Select)
+        target_sel = self.query_one("#compare-target", Select)
+        base_sel.set_options([(n, n) for n in self.branch_names])
+        target_sel.set_options([(n, n) for n in self.branch_names])
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "compare-run":
+            self._run_comparison()
+
+    def _run_comparison(self) -> None:
+        base_sel = self.query_one("#compare-base", Select)
+        target_sel = self.query_one("#compare-target", Select)
+        if isinstance(base_sel.value, Select.NoSelection) or isinstance(target_sel.value, Select.NoSelection):
+            self.query_one("#compare-summary", Label).update("Select both branches.")
+            return
+        base = base_sel.value
+        target = target_sel.value
+        if base == target:
+            self.query_one("#compare-summary", Label).update("Select two different branches.")
+            return
+
+        try:
+            merge_base = get_merge_base(self.repo_path, base, target)
+        except RuntimeError as e:
+            self.query_one("#compare-summary", Label).update(f"Error: {e}")
+            return
+
+        stats = get_diff_stat(self.repo_path, base, target)
+        summary = get_shortstat(self.repo_path, base, target)
+        commits = get_commits_between(self.repo_path, base, target)
+
+        lines = [f"[bold]{base}[/] → [bold]{target}[/]  (merge-base: {merge_base[:8]})"]
+        lines.append(f"\n[bold]Summary:[/] {summary or 'No differences'}")
+        if commits:
+            lines.append(f"\n[bold]Commits ({len(commits)}):[/]")
+            for sha, subject in commits[:30]:
+                lines.append(f"  {sha}  {subject}")
+            if len(commits) > 30:
+                lines.append(f"  ... and {len(commits) - 30} more")
+        if stats:
+            lines.append(f"\n[bold]Files changed ({len(stats)}):[/]")
+            for added, removed, path in stats[:50]:
+                delta = f"+{added}/-{removed}" if added != "-" else "binary"
+                lines.append(f"  {delta:>10}  {path}")
+            if len(stats) > 50:
+                lines.append(f"  ... and {len(stats) - 50} more")
+        self.query_one("#compare-summary", Label).update(
+            f"{len(commits)} commits, {len(stats)} files"
+        )
+        self.query_one("#compare-result", Static).update("\n".join(lines))
 
 
 class MainScreen(Screen):
@@ -1438,6 +1544,8 @@ class MainScreen(Screen):
                 yield MaintenanceContent(self.repo_path)
             with TabPane("Stashes", id="stash-pane"):
                 yield StashContent(self.repo_path)
+            with TabPane("Compare", id="compare-pane"):
+                yield CompareContent(self.repo_path)
         yield RepoFooter(self.repo_path)
 
     # ── Actions that delegate to BranchesContent ────────────────────────
