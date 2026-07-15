@@ -1548,6 +1548,10 @@ class MainScreen(Screen):
                 yield CompareContent(self.repo_path)
         yield RepoFooter(self.repo_path)
 
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if event.tab_id == "compare-pane":
+            self.query_one(CompareContent)._load_branch_names()
+
     # ── Actions that delegate to BranchesContent ────────────────────────
 
     def action_toggle_row(self) -> None:
