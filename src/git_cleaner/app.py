@@ -1479,7 +1479,8 @@ class CommitAnalysisContent(Vertical):
         self.query_one("#commit-hotspots-table", DataTable).add_columns("Hash", "Author", "Date", "Subject")
 
     def _load_branch_names(self) -> None:
-        self.branch_names = list_branches(self.repo_path)
+        branches = list_branches(self.repo_path)
+        self.branch_names = [b.name for b in branches]
         sel = self.query_one("#commit-branch-select", Select)
         sel.set_options([(b, b) for b in self.branch_names])
 
