@@ -241,6 +241,61 @@ def get_branch_details(repo_path: Path, branch_name: str) -> str:
         return "Timed out fetching branch details"
 
 
+# ─── Branch comparison ──────────────────────────────────────────────────
+
+
+def get_merge_base(repo_path: Path, ref1: str, ref2: str) -> str:
+    """Return the merge-base commit SHA for two refs."""
+    result = subprocess.run(
+        ["git", "merge-base", ref1, ref2],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"merge-base failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def get_diff_stat(repo_path: Path, ref1: str, ref2: str) -> list[tuple[str, str, str]]:
+    """Return file-level diff stats between two refs as (added, removed, path)."""
+    result = subprocess.run(
+        ["git", "diff", "--numstat", f"{ref1}...{ref2}"],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        return []
+    stats: list[tuple[str, str, str]] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3:
+            stats.append((parts[0], parts[1], parts[2]))
+    return stats
+
+
+def get_shortstat(repo_path: Path, ref1: str, ref2: str) -> str:
+    """Return shortstat summary string between two refs."""
+    result = subprocess.run(
+        ["git", "diff", "--shortstat", f"{ref1}...{ref2}"],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def get_commits_between(repo_path: Path, ref1: str, ref2: str, limit: int = 50) -> list[tuple[str, str]]:
+    """Return (sha, subject) for commits on ref2 not in ref1."""
+    result = subprocess.run(
+        ["git", "log", "--oneline", "--no-merges", f"{ref1}..{ref2}", f"-n{limit}"],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        return []
+    commits: list[tuple[str, str]] = []
+    for line in result.stdout.strip().splitlines():
+        sha, _, subject = line.partition(" ")
+        if sha:
+            commits.append((sha[:7], subject))
+    return commits
+
+
 # ─── Repository health & maintenance ─────────────────────────────────────────
 
 
