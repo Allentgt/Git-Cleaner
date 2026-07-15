@@ -296,6 +296,114 @@ def get_commits_between(repo_path: Path, ref1: str, ref2: str, limit: int = 50) 
     return commits
 
 
+# ─── Worktree operations ────────────────────────────────────────────────
+
+
+@dataclass
+class WorktreeInfo:
+    path: str
+    head: str          # full SHA
+    branch: str        # branch name (empty if detached/bare)
+    is_bare: bool = False
+    is_detached: bool = False
+    is_locked: bool = False
+    lock_reason: str = ""
+    is_prunable: bool = False
+    prune_reason: str = ""
+
+
+def list_worktrees(repo_path: Path) -> list[WorktreeInfo]:
+    """List all worktrees using porcelain output for reliable parsing."""
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        return []
+
+    worktrees: list[WorktreeInfo] = []
+    current: dict[str, str | bool] = {}
+
+    for line in result.stdout.splitlines():
+        if line == "":
+            if current.get("path"):
+                worktrees.append(WorktreeInfo(
+                    path=str(current["path"]),
+                    head=str(current.get("head", "")),
+                    branch=str(current.get("branch", "")),
+                    is_bare=bool(current.get("bare")),
+                    is_detached=bool(current.get("detached")),
+                    is_locked=bool(current.get("locked")),
+                    lock_reason=str(current.get("lock_reason", "")),
+                    is_prunable=bool(current.get("prunable")),
+                    prune_reason=str(current.get("prune_reason", "")),
+                ))
+                current = {}
+            continue
+        if line.startswith("worktree "):
+            current["path"] = line[9:]
+        elif line.startswith("HEAD "):
+            current["head"] = line[5:]
+        elif line.startswith("branch "):
+            ref = line[7:]
+            current["branch"] = ref.removeprefix("refs/heads/")
+        elif line == "detached":
+            current["detached"] = True
+        elif line == "bare":
+            current["bare"] = True
+        elif line.startswith("locked"):
+            current["locked"] = True
+            if len(line) > 7:
+                current["lock_reason"] = line[7:]
+        elif line.startswith("prunable"):
+            current["prunable"] = True
+            if len(line) > 9:
+                current["prune_reason"] = line[9:]
+
+    # Flush last record
+    if current.get("path"):
+        worktrees.append(WorktreeInfo(
+            path=str(current["path"]),
+            head=str(current.get("head", "")),
+            branch=str(current.get("branch", "")),
+            is_bare=bool(current.get("bare")),
+            is_detached=bool(current.get("detached")),
+            is_locked=bool(current.get("locked")),
+            lock_reason=str(current.get("lock_reason", "")),
+            is_prunable=bool(current.get("prunable")),
+            prune_reason=str(current.get("prune_reason", "")),
+        ))
+
+    return worktrees
+
+
+def add_worktree(repo_path: Path, path: str, branch: str | None = None) -> tuple[bool, str]:
+    """Create a new worktree. If branch given, checkout that branch; otherwise create new."""
+    cmd = ["git", "worktree", "add", path]
+    if branch:
+        cmd.extend(["-b", branch])
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=repo_path, timeout=30)
+    return result.returncode == 0, result.stderr.strip() or result.stdout.strip()
+
+
+def remove_worktree(repo_path: Path, path: str, force: bool = False) -> tuple[bool, str]:
+    """Remove a worktree. Pass force=True for dirty/locked worktrees."""
+    cmd = ["git", "worktree", "remove", path]
+    if force:
+        cmd.append("--force")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=repo_path, timeout=30)
+    return result.returncode == 0, result.stderr.strip() or result.stdout.strip()
+
+
+def prune_worktrees(repo_path: Path, dry_run: bool = True) -> tuple[bool, str]:
+    """Prune stale worktree admin files. Defaults to dry-run."""
+    cmd = ["git", "worktree", "prune"]
+    if dry_run:
+        cmd.append("-n")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=repo_path, timeout=10)
+    return result.returncode == 0, result.stdout.strip() or result.stderr.strip()
+
+
 # ─── Repository health & maintenance ─────────────────────────────────────────
 
 
