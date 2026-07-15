@@ -76,6 +76,11 @@ from git_cleaner.git_ops import (
     get_diff_stat,
     get_shortstat,
     get_commits_between,
+    list_worktrees,
+    add_worktree,
+    remove_worktree,
+    prune_worktrees,
+    WorktreeInfo,
 )
 
 
@@ -1511,6 +1516,178 @@ class CompareContent(Vertical):
         self.query_one("#compare-result", Static).update("\n".join(lines))
 
 
+class WorktreeCreateDialog(ModalScreen[tuple[str, str] | None]):
+    """Modal to create a new worktree."""
+
+    CSS = """
+    WorktreeCreateDialog {
+        align: center middle;
+    }
+    #wt-create-dialog {
+        width: 60;
+        height: auto;
+        border: solid $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #wt-create-dialog > Label {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #wt-create-dialog > Input {
+        margin: 0 0 1 0;
+    }
+    #wt-create-buttons {
+        margin-top: 1;
+    }
+    #wt-create-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("Create Worktree"),
+            Input(placeholder="Path (e.g. ../my-feature)", id="wt-path-input"),
+            Input(placeholder="New branch name (optional)", id="wt-branch-input"),
+            Horizontal(
+                Button("Cancel", variant="default", id="wt-cancel"),
+                Button("Create", variant="primary", id="wt-create"),
+            ),
+            id="wt-create-dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#wt-path-input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "wt-cancel":
+            self.dismiss(None)
+        elif event.button.id == "wt-create":
+            path = self.query_one("#wt-path-input", Input).value.strip()
+            branch = self.query_one("#wt-branch-input", Input).value.strip()
+            if not path:
+                return
+            self.dismiss((path, branch))
+
+    def on_key(self, event: Key) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+        elif event.key == "enter":
+            path = self.query_one("#wt-path-input", Input).value.strip()
+            branch = self.query_one("#wt-branch-input", Input).value.strip()
+            if path:
+                self.dismiss((path, branch))
+
+
+class WorktreesContent(Vertical):
+    """Worktrees tab: list, create, and remove git worktrees."""
+
+    CSS = """
+    WorktreesContent {
+        height: 1fr;
+    }
+    #wt-table {
+        height: 1fr;
+    }
+    #wt-actions {
+        height: 3;
+        padding: 0 1;
+    }
+    #wt-actions Button {
+        margin: 0 1;
+    }
+    #wt-status {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        self.worktrees: list[WorktreeInfo] = []
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield DataTable(id="wt-table")
+        with Horizontal(id="wt-actions"):
+            yield Button("Add", id="wt-add", variant="primary")
+            yield Button("Remove", id="wt-remove", variant="error")
+            yield Button("Prune", id="wt-prune", variant="warning")
+            yield Button("Refresh", id="wt-refresh", variant="default")
+        yield Static(id="wt-status")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#wt-table", DataTable)
+        table.cursor_type = "row"
+        table.add_columns("Path", "Branch", "HEAD", "Status")
+        self._load_worktrees()
+
+    def _load_worktrees(self) -> None:
+        self.worktrees = list_worktrees(self.repo_path)
+        table = self.query_one("#wt-table", DataTable)
+        table.clear()
+        for wt in self.worktrees:
+            if wt.is_bare:
+                branch = "(bare)"
+            elif wt.is_detached:
+                branch = "(detached)"
+            else:
+                branch = wt.branch or "—"
+            head = wt.head[:8] if wt.head else "—"
+            status = ""
+            if wt.is_locked:
+                status = f"locked: {wt.lock_reason}" if wt.lock_reason else "locked"
+            elif wt.is_prunable:
+                status = f"prunable: {wt.prune_reason}" if wt.prune_reason else "prunable"
+            table.add_row(wt.path, branch, head, status)
+        self.query_one("#wt-status", Static).update(f"{len(self.worktrees)} worktree(s)")
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id
+        if btn_id == "wt-refresh":
+            self._load_worktrees()
+            return
+        if btn_id == "wt-prune":
+            ok, msg = await asyncio.to_thread(prune_worktrees, self.repo_path, dry_run=False)
+            self.query_one("#wt-status", Static).update(f"Prune: {msg}")
+            self._load_worktrees()
+            return
+        if btn_id == "wt-add":
+            self.app.push_screen(WorktreeCreateDialog(), self._on_add_created)
+            return
+        if btn_id == "wt-remove":
+            table = self.query_one("#wt-table", DataTable)
+            if table.cursor_row is None or table.cursor_row >= len(self.worktrees):
+                self.query_one("#wt-status", Static).update("No worktree selected")
+                return
+            wt = self.worktrees[table.cursor_row]
+            if wt.is_bare:
+                self.query_one("#wt-status", Static).update("Cannot remove the main worktree")
+                return
+            self.app.push_screen(
+                ConfirmationDialog([wt.path], delete_remote=False),
+                lambda confirmed: asyncio.ensure_future(self._do_remove(wt.path, confirmed)),
+            )
+
+    async def _do_remove(self, path: str, confirmed: bool) -> None:
+        if not confirmed:
+            return
+        ok, msg = await asyncio.to_thread(remove_worktree, self.repo_path, path, force=True)
+        self.query_one("#wt-status", Static).update(msg)
+        self._load_worktrees()
+
+    def _on_add_created(self, result: tuple[str, str] | None) -> None:
+        if result:
+            path, branch = result
+            ok, msg = asyncio.get_event_loop().run_until_complete(
+                asyncio.to_thread(add_worktree, self.repo_path, path, branch or None)
+            )
+            self.query_one("#wt-status", Static).update(msg)
+            self._load_worktrees()
+
+
 class MainScreen(Screen):
     """Single screen with tabbed content: Branches, Maintenance, Stashes."""
 
@@ -1546,6 +1723,8 @@ class MainScreen(Screen):
                 yield StashContent(self.repo_path)
             with TabPane("Compare", id="compare-pane"):
                 yield CompareContent(self.repo_path)
+            with TabPane("Worktrees", id="worktrees-pane"):
+                yield WorktreesContent(self.repo_path)
         yield RepoFooter(self.repo_path)
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:

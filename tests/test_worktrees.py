@@ -2,6 +2,12 @@ from pathlib import Path
 from git_cleaner.git_ops import list_worktrees, WorktreeInfo
 
 
+def test_worktrees_content_exists():
+    """WorktreesContent class exists."""
+    from git_cleaner.app import WorktreesContent
+    assert WorktreesContent is not None
+
+
 def test_list_worktrees_returns_list():
     """list_worktrees returns a list (may be empty for repos without worktrees)."""
     result = list_worktrees(Path("."))
