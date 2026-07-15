@@ -56,6 +56,8 @@ from git_cleaner.config import (
 from git_cleaner.git_ops import (
     BranchInfo,
     StashInfo,
+    CommitInfo,
+    AuthorStats,
     list_branches,
     list_stashes,
     delete_branches,
@@ -81,6 +83,9 @@ from git_cleaner.git_ops import (
     remove_worktree,
     prune_worktrees,
     WorktreeInfo,
+    get_commit_log,
+    get_author_stats,
+    get_large_commits,
 )
 
 
@@ -1413,6 +1418,114 @@ class StashContent(Vertical):
                 self._load_stashes()
 
 
+class CommitAnalysisContent(Vertical):
+    """Commits tab: commit log, author stats, and large commits per branch."""
+
+    CSS = """
+    CommitAnalysisContent {
+        height: 1fr;
+    }
+    #commit-select-row {
+        height: 3;
+        padding: 0 1;
+    }
+    #commit-select-row > Label {
+        width: auto;
+        margin: 0 1 0 0;
+    }
+    #commit-select-row > Select {
+        width: 1fr;
+    }
+    #commit-log-table, #commit-authors-table, #commit-hotspots-table {
+        height: 1fr;
+    }
+    #commit-status {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        self.branch_names: list[str] = []
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="commit-select-row"):
+            yield Label("Branch:")
+            yield Select([], id="commit-branch-select", prompt="Select branch", allow_blank=True)
+            yield Button("Load", id="commit-load", classes="task-button", variant="primary")
+        with Horizontal(classes="task-row"):
+            yield Button("Log", id="commit-show-log", classes="task-button", variant="default")
+            yield Button("Authors", id="commit-show-authors", classes="task-button", variant="default")
+            yield Button("Hotspots", id="commit-show-hotspots", classes="task-button", variant="default")
+        yield DataTable(id="commit-log-table")
+        yield DataTable(id="commit-authors-table")
+        yield DataTable(id="commit-hotspots-table")
+        yield Static(id="commit-status")
+
+    def on_mount(self) -> None:
+        self._load_branch_names()
+        self.query_one("#commit-authors-table", DataTable).display = False
+        self.query_one("#commit-hotspots-table", DataTable).display = False
+        # Init columns
+        self.query_one("#commit-log-table", DataTable).add_columns("Hash", "Author", "Date", "Subject")
+        self.query_one("#commit-authors-table", DataTable).add_columns("Author", "Commits", "Insertions", "Deletions", "First", "Last")
+        self.query_one("#commit-hotspots-table", DataTable).add_columns("Hash", "Author", "Date", "Subject")
+
+    def _load_branch_names(self) -> None:
+        self.branch_names = list_branches(self.repo_path)
+        sel = self.query_one("#commit-branch-select", Select)
+        sel.set_options([(b, b) for b in self.branch_names])
+
+    def _show_only(self, which: str) -> None:
+        """Show one DataTable, hide the others."""
+        for name, visible in [("log", which == "log"), ("authors", which == "authors"), ("hotspots", which == "hotspots")]:
+            self.query_one(f"#commit-{name}-table", DataTable).display = visible
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id
+        if btn_id == "commit-load":
+            sel = self.query_one("#commit-branch-select", Select)
+            if sel.value is Select.NULL:
+                self.query_one("#commit-status", Static).update("Select a branch.")
+                return
+            branch = sel.value
+            self._load_commits(branch)
+        elif btn_id == "commit-show-log":
+            self._show_only("log")
+        elif btn_id == "commit-show-authors":
+            self._show_only("authors")
+        elif btn_id == "commit-show-hotspots":
+            self._show_only("hotspots")
+
+    def _load_commits(self, branch: str) -> None:
+        status = self.query_one("#commit-status", Static)
+        status.update("Loading...")
+        commits = get_commit_log(self.repo_path, branch, limit=200)
+        # Log table
+        log_table = self.query_one("#commit-log-table", DataTable)
+        log_table.clear()
+        for c in commits:
+            log_table.add_row(c.short_hash, c.author, c.date.strftime("%Y-%m-%d"), c.subject[:80])
+        # Authors table
+        authors = get_author_stats(self.repo_path, branch)
+        auth_table = self.query_one("#commit-authors-table", DataTable)
+        auth_table.clear()
+        for a in authors:
+            auth_table.add_row(a.author, str(a.commits), f"+{a.insertions}", f"-{a.deletions}",
+                               a.first_date.strftime("%Y-%m-%d"), a.last_date.strftime("%Y-%m-%d"))
+        # Hotspots table
+        large = get_large_commits(self.repo_path, branch, threshold=50)
+        hot_table = self.query_one("#commit-hotspots-table", DataTable)
+        hot_table.clear()
+        for c in large:
+            hot_table.add_row(c.short_hash, c.author, c.date.strftime("%Y-%m-%d"), c.subject[:80])
+        self._show_only("log")
+        status.update(f"{len(commits)} commits · {len(authors)} authors · {len(large)} large")
+
+
 class CompareContent(Vertical):
     """Compare tab: select two branches and see their diff."""
 
@@ -1719,6 +1832,8 @@ class MainScreen(Screen):
                 yield MaintenanceContent(self.repo_path)
             with TabPane("Stashes", id="stash-pane"):
                 yield StashContent(self.repo_path)
+            with TabPane("Commits", id="commits-pane"):
+                yield CommitAnalysisContent(self.repo_path)
             with TabPane("Compare", id="compare-pane"):
                 yield CompareContent(self.repo_path)
             with TabPane("Worktrees", id="worktrees-pane"):
@@ -1728,6 +1843,8 @@ class MainScreen(Screen):
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.pane.id == "compare-pane":
             self.query_one(CompareContent)._load_branch_names()
+        elif event.pane.id == "commits-pane":
+            self.query_one(CommitAnalysisContent)._load_branch_names()
 
     # ── Actions that delegate to BranchesContent ────────────────────────
 
@@ -1925,6 +2042,11 @@ class HelpOverlay(ModalScreen[None]):
         items.append(Static("Compare Tab", classes="help-section-title"))
         items.append(Static("[Tab] Switch to Compare tab", classes="help-item"))
         items.append(Static("Select base & target branches, press Compare", classes="help-item"))
+
+        items.append(Static("Commits Tab", classes="help-section-title"))
+        items.append(Static("[Tab] Switch to Commits tab", classes="help-item"))
+        items.append(Static("Select branch, press Load to view commit log", classes="help-item"))
+        items.append(Static("Toggle Log / Authors / Hotspots buttons", classes="help-item"))
 
         items.append(Static("Worktrees Tab", classes="help-section-title"))
         items.append(Static("[Tab] Switch to Worktrees tab", classes="help-item"))

@@ -404,6 +404,139 @@ def prune_worktrees(repo_path: Path, dry_run: bool = True) -> tuple[bool, str]:
     return result.returncode == 0, result.stdout.strip() or result.stderr.strip()
 
 
+# ─── Commit analysis ─────────────────────────────────────────────────────
+
+
+@dataclass
+class CommitInfo:
+    short_hash: str
+    author: str
+    date: datetime
+    subject: str
+
+
+@dataclass
+class AuthorStats:
+    author: str
+    commits: int
+    insertions: int
+    deletions: int
+    first_date: datetime
+    last_date: datetime
+
+
+def get_commit_log(repo_path: Path, ref: str = "HEAD", limit: int = 50) -> list[CommitInfo]:
+    """Return recent commits for a branch/ref."""
+    result = subprocess.run(
+        ["git", "log", "--format=%h|%aE|%aI|%s", "--no-merges", f"-n{limit}", ref],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        return []
+    commits: list[CommitInfo] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("|", 3)
+        if len(parts) != 4:
+            continue
+        h, author, date_str, subject = parts
+        try:
+            dt = datetime.fromisoformat(date_str)
+        except ValueError:
+            continue
+        commits.append(CommitInfo(short_hash=h, author=author, date=dt, subject=subject))
+    return commits
+
+
+def get_author_stats(repo_path: Path, ref: str = "HEAD") -> list[AuthorStats]:
+    """Return per-author contribution stats for a branch."""
+    result = subprocess.run(
+        ["git", "log", "--format=%aE|%aI", "--shortstat", "--no-merges", ref],
+        capture_output=True, text=True, cwd=repo_path, timeout=30,
+    )
+    if result.returncode != 0:
+        return []
+    # Aggregate per author
+    authors: dict[str, dict] = {}
+    current_author = None
+    current_date = None
+    for line in result.stdout.strip().splitlines():
+        line = line.strip()
+        if "|" in line and "file" not in line:
+            # Author/date line: email|date
+            current_author, _, date_str = line.partition("|")
+            try:
+                current_date = datetime.fromisoformat(date_str)
+            except ValueError:
+                current_date = None
+            if current_author not in authors:
+                authors[current_author] = {"commits": 0, "ins": 0, "del": 0, "first": current_date, "last": current_date}
+            authors[current_author]["commits"] += 1
+            if current_date:
+                if authors[current_author]["first"] is None or current_date < authors[current_author]["first"]:
+                    authors[current_author]["first"] = current_date
+                if authors[current_author]["last"] is None or current_date > authors[current_author]["last"]:
+                    authors[current_author]["last"] = current_date
+        elif "file" in line and current_author:
+            # Shortstat line: "N files changed, M insertions(+), K deletions(-)"
+            import re
+            ins = re.search(r"(\d+) insertion", line)
+            dele = re.search(r"(\d+) deletion", line)
+            if ins:
+                authors[current_author]["ins"] += int(ins.group(1))
+            if dele:
+                authors[current_author]["del"] += int(dele.group(1))
+    return [
+        AuthorStats(
+            author=a,
+            commits=d["commits"],
+            insertions=d["ins"],
+            deletions=d["del"],
+            first_date=d["first"] or datetime.min.replace(tzinfo=timezone.utc),
+            last_date=d["last"] or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        for a, d in sorted(authors.items(), key=lambda x: -x[1]["commits"])
+    ]
+
+
+def get_large_commits(repo_path: Path, ref: str = "HEAD", threshold: int = 50, limit: int = 20) -> list[CommitInfo]:
+    """Return commits with more than `threshold` changed files."""
+    result = subprocess.run(
+        ["git", "log", "--format=%h|%aE|%aI|%s", "--shortstat", "--no-merges", f"-n{limit * 5}", ref],
+        capture_output=True, text=True, cwd=repo_path, timeout=30,
+    )
+    if result.returncode != 0:
+        return []
+    import re
+    commits: list[CommitInfo] = []
+    current: list[str] = []
+    for line in result.stdout.strip().splitlines():
+        line = line.strip()
+        if "|" in line and "file" not in line:
+            if current:
+                _maybe_add_large(commits, current, threshold)
+            current = [line]
+        elif "file" in line and current:
+            current.append(line)
+    if current:
+        _maybe_add_large(commits, current, threshold)
+    return commits[:limit]
+
+
+def _maybe_add_large(out: list[CommitInfo], parts: list[str], threshold: int) -> None:
+    """Parse a commit+shortstat pair and append if it exceeds threshold."""
+    import re
+    if len(parts) < 2:
+        return
+    h, author, date_str, subject = parts[0].split("|", 3)
+    files_match = re.search(r"(\d+) files? changed", parts[1])
+    if files_match and int(files_match.group(1)) > threshold:
+        try:
+            dt = datetime.fromisoformat(date_str)
+        except ValueError:
+            return
+        out.append(CommitInfo(short_hash=h, author=author, date=dt, subject=subject))
+
+
 # ─── Repository health & maintenance ─────────────────────────────────────────
 
 
