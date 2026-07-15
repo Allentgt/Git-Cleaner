@@ -86,6 +86,10 @@ from git_cleaner.git_ops import (
     get_commit_log,
     get_author_stats,
     get_large_commits,
+    PRInfo,
+    list_open_prs,
+    _detect_provider,
+    _get_api_token,
 )
 
 
@@ -1526,6 +1530,74 @@ class CommitAnalysisContent(Vertical):
         status.update(f"{len(commits)} commits · {len(authors)} authors · {len(large)} large")
 
 
+class PRIntegrationContent(Vertical):
+    """Pull Requests tab: show open PRs/MRs from GitHub or GitLab."""
+
+    CSS = """
+    PRIntegrationContent {
+        height: 1fr;
+    }
+    #pr-table {
+        height: 1fr;
+    }
+    #pr-actions {
+        dock: bottom;
+    }
+    #pr-status {
+        dock: bottom;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        self.prs: list[PRInfo] = []
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield DataTable(id="pr-table")
+        with Horizontal(id="pr-actions", classes="task-row"):
+            yield Button("Open in Browser", id="pr-open", classes="task-button", variant="primary")
+            yield Button("Refresh", id="pr-refresh", classes="task-button", variant="default")
+        yield Static(id="pr-status")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#pr-table", DataTable)
+        table.cursor_type = "row"
+        table.add_columns("Branch", "PR", "Title", "Author", "State")
+        self._load_prs()
+
+    def _load_prs(self) -> None:
+        status = self.query_one("#pr-status", Static)
+        provider = _detect_provider(self.repo_path)
+        if not provider:
+            status.update("No GitHub/GitLab remote detected.")
+            return
+        token = _get_api_token(provider)
+        if not token:
+            env = "GITHUB_TOKEN" if provider == "github" else "GITLAB_TOKEN"
+            status.update(f"Set {env} env var to enable PR integration.")
+            return
+        self.prs = list_open_prs(self.repo_path)
+        table = self.query_one("#pr-table", DataTable)
+        table.clear()
+        for pr in self.prs:
+            table.add_row(pr.branch, f"#{pr.number}", pr.title[:60], pr.author, pr.state)
+        status.update(f"{len(self.prs)} open {'PR' if provider == 'github' else 'MR'}(s) — {provider}")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id
+        if btn_id == "pr-refresh":
+            self._load_prs()
+        elif btn_id == "pr-open":
+            table = self.query_one("#pr-table", DataTable)
+            if table.cursor_row is not None and table.cursor_row < len(self.prs):
+                import webbrowser
+                webbrowser.open(self.prs[table.cursor_row].url)
+
+
 class CompareContent(Vertical):
     """Compare tab: select two branches and see their diff."""
 
@@ -1838,6 +1910,8 @@ class MainScreen(Screen):
                 yield CompareContent(self.repo_path)
             with TabPane("Worktrees", id="worktrees-pane"):
                 yield WorktreesContent(self.repo_path)
+            with TabPane("Pull Requests", id="pullrequests-pane"):
+                yield PRIntegrationContent(self.repo_path)
         yield RepoFooter(self.repo_path)
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -2051,6 +2125,11 @@ class HelpOverlay(ModalScreen[None]):
         items.append(Static("Worktrees Tab", classes="help-section-title"))
         items.append(Static("[Tab] Switch to Worktrees tab", classes="help-item"))
         items.append(Static("[Enter] Select worktree row", classes="help-item"))
+
+        items.append(Static("Pull Requests Tab", classes="help-section-title"))
+        items.append(Static("[Tab] Switch to Pull Requests tab", classes="help-item"))
+        items.append(Static("Requires GITHUB_TOKEN or GITLAB_TOKEN env var", classes="help-item"))
+        items.append(Static("[Enter] Open selected PR in browser", classes="help-item"))
 
         items.append(Static("[escape] Close", classes="help-item"))
         yield Vertical(*items, id="help-container")
