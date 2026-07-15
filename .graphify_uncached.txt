@@ -1,5 +1,0 @@
-AGENTS.md
-README.md
-docs\superpowers\plans\2026-06-20-git-cleaner.md
-docs\superpowers\specs\2026-06-20-git-cleaner-design.md
-logo\logo.png
