@@ -16,7 +16,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install build; python -m build -o dist .
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv build
 
       - uses: softprops/action-gh-release@v2
         with:
