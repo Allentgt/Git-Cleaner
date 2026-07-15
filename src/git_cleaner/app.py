@@ -1591,13 +1591,14 @@ class WorktreesContent(Vertical):
     #wt-table {
         height: 1fr;
     }
+    #wt-actions {
+        dock: bottom;
+    }
     #wt-status {
+        dock: bottom;
         height: 1;
         padding: 0 1;
         color: $text-muted;
-    }
-    .task-row {
-        dock: bottom;
     }
     """
 
@@ -1608,7 +1609,7 @@ class WorktreesContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="wt-table")
-        with Horizontal(classes="task-row"):
+        with Horizontal(id="wt-actions", classes="task-row"):
             yield Button("Add", id="wt-add", classes="task-button", variant="primary")
             yield Button("Remove", id="wt-remove", classes="task-button", variant="error")
             yield Button("Prune", id="wt-prune", classes="task-button", variant="warning")
