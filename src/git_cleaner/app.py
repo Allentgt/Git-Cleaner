@@ -56,8 +56,6 @@ from git_cleaner.config import (
 from git_cleaner.git_ops import (
     BranchInfo,
     StashInfo,
-    CommitInfo,
-    AuthorStats,
     list_branches,
     list_stashes,
     delete_branches,
@@ -90,6 +88,8 @@ from git_cleaner.git_ops import (
     list_open_prs,
     _detect_provider,
     _get_api_token,
+    get_stale_branches_across_repos,
+    StaleBranchInfo,
 )
 
 
@@ -153,14 +153,6 @@ Tab.-active {
 
 Tab:disabled {
     color: $text-muted 30%;
-}
-
-/* === Main content vertical centering === */
-#main-content {
-    align: center top;
-    height: 1fr;
-    width: 100%;
-    overflow-y: auto;
 }
 
 /* === Date range picker labels === */
@@ -340,6 +332,7 @@ Tree:focus {
 #health-stats .health-stat {
     padding: 0 1;
     height: 1;
+    color: $text-muted;
 }
 
 #health-status-bar {
@@ -444,11 +437,6 @@ Tree:focus {
     background: $surface 50%;
 }
 
-#maintenance-actions {
-    height: auto;
-    align: center middle;
-}
-
 /* === Task help legend === */
 #help-legend {
     height: auto;
@@ -522,28 +510,6 @@ Tree:focus {
     max-height: 20;
     margin: 1 0;
     border: solid $primary 30%;
-}
-
-/* === Bottom repo label === */
-#repo-label-bottom {
-    padding: 0 1;
-    color: $text-muted;
-    text-align: left;
-    height: 1;
-}
-
-#bottom-bar {
-    height: auto;
-    margin: 0 1;
-    align: left middle;
-    padding: 0 1;
-}
-
-.footer-repo-label {
-    color: $text-muted;
-    padding: 0 1;
-    height: auto;
-    text-align: left;
 }
 """
 
@@ -1106,10 +1072,7 @@ class MaintenanceContent(Vertical):
                 yield Label("|", id="health-status-divider")
                 yield Label("No recommendations", id="health-status-reco")
             yield Label("", id="stat-git-size", classes="health-stat")
-            yield Label("", id="stat-loose", classes="health-stat")
-            yield Label("", id="stat-packed", classes="health-stat")
-            yield Label("", id="stat-garbage", classes="health-stat")
-            yield Label("", id="stat-prune", classes="health-stat")
+            yield Static("", id="health-details", classes="health-stat")
             with Vertical(id="health-recommendations"):
                 yield Label("", id="reco-0", classes="reco-item")
                 yield Label("", id="reco-1", classes="reco-item")
@@ -1199,28 +1162,28 @@ class MaintenanceContent(Vertical):
         size_garbage = stats.get("size-garbage", "0")
         prune_packable = stats.get("prune-packable", "0")
 
+        details = []
         try:
             sz = int(size)
-            loose_extra = f" ({sz} KiB)" if sz else ""
+            if sz:
+                details.append(f"Loose: {count} ({sz} KiB)")
+            else:
+                details.append(f"Loose: {count}")
         except ValueError:
-            loose_extra = ""
-        self.query_one("#stat-loose", Label).update(f"Loose objects: {count}{loose_extra}")
-
+            details.append(f"Loose: {count}")
         try:
             sp = int(size_pack)
             pk = int(packs)
-            packed_extra = f" ({sp} KiB in {pk} packs)" if pk else ""
+            details.append(f"Packed: {in_pack} ({sp} KiB, {pk} packs)")
         except ValueError:
-            packed_extra = ""
-        self.query_one("#stat-packed", Label).update(f"Packed objects: {in_pack}{packed_extra}")
-
+            details.append(f"Packed: {in_pack}")
         try:
             sg = int(size_garbage)
-            garbage_extra = f" ({sg} KiB)" if sg else ""
+            details.append(f"Garbage: {garbage} ({sg} KiB)")
         except ValueError:
-            garbage_extra = ""
-        self.query_one("#stat-garbage", Label).update(f"Garbage objects: {garbage}{garbage_extra}")
-        self.query_one("#stat-prune", Label).update(f"Prune-packable: {prune_packable}")
+            details.append(f"Garbage: {garbage}")
+        details.append(f"Prune-packable: {prune_packable}")
+        self.query_one("#health-details", Static).update(" · ".join(details))
 
         badge, css_class, recommendations = self._assess_health(stats)
         badge_widget = self.query_one("#health-status-badge", Label)
@@ -1599,6 +1562,69 @@ class PRIntegrationContent(Vertical):
                 webbrowser.open(self.prs[table.cursor_row].url)
 
 
+class StaleReposContent(Vertical):
+    """Stale Branches tab: show stale branches across all bookmarked repos."""
+
+    CSS = """
+    StaleReposContent {
+        height: 1fr;
+    }
+    #stale-table {
+        height: 1fr;
+    }
+    #stale-actions {
+        dock: bottom;
+    }
+    #stale-status {
+        dock: bottom;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        self.branches: list = []
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield DataTable(id="stale-table")
+        with Horizontal(id="stale-actions", classes="task-row"):
+            yield Button("Refresh", id="stale-refresh", classes="task-button", variant="default")
+        yield Static(id="stale-status")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#stale-table", DataTable)
+        table.cursor_type = "row"
+        table.add_columns("Repo", "Branch", "Age", "Author", "Last Commit")
+        self._load()
+
+    def _load(self) -> None:
+        from git_cleaner.config import load_bookmarks
+
+        bookmarks = load_bookmarks()
+        # Include current repo if not already bookmarked
+        current = str(self.repo_path.resolve())
+        repos = list(bookmarks)
+        if current not in repos:
+            repos.insert(0, current)
+
+        status = self.query_one("#stale-status", Static)
+        status.update(f"Scanning {len(repos)} repo(s)…")
+        self.branches = get_stale_branches_across_repos(repos)
+        table = self.query_one("#stale-table", DataTable)
+        table.clear()
+        for b in self.branches:
+            repo_label = Path(b.repo).name
+            table.add_row(repo_label, b.name, f"{b.age_days}d", b.author, b.last_commit)
+        status.update(f"{len(self.branches)} stale branch(es) across {len(repos)} repo(s)")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "stale-refresh":
+            self._load()
+
+
 class CompareContent(Vertical):
     """Compare tab: select two branches and see their diff."""
 
@@ -1913,6 +1939,8 @@ class MainScreen(Screen):
                 yield WorktreesContent(self.repo_path)
             with TabPane("Pull Requests", id="pullrequests-pane"):
                 yield PRIntegrationContent(self.repo_path)
+            with TabPane("Stale", id="stale-pane"):
+                yield StaleReposContent(self.repo_path)
         yield RepoFooter(self.repo_path)
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
@@ -2131,6 +2159,10 @@ class HelpOverlay(ModalScreen[None]):
         items.append(Static("[Tab] Switch to Pull Requests tab", classes="help-item"))
         items.append(Static("Requires GITHUB_TOKEN or GITLAB_TOKEN env var", classes="help-item"))
         items.append(Static("[Enter] Open selected PR in browser", classes="help-item"))
+
+        items.append(Static("Stale Tab", classes="help-section-title"))
+        items.append(Static("[Tab] Switch to Stale tab", classes="help-item"))
+        items.append(Static("Shows stale branches (>180d) across all bookmarked repos", classes="help-item"))
 
         items.append(Static("[escape] Close", classes="help-item"))
         yield Vertical(*items, id="help-container")
