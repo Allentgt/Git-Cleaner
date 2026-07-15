@@ -708,3 +708,164 @@ def expire_reflog(
     if rc == 0:
         return True, f"Reflog entries >{days}d expired"
     return False, stderr.strip() if stderr else "Reflog expire failed"
+
+
+# ─── PR/MR Integration (GitHub + GitLab) ──────────────────────────────────
+
+
+@dataclass
+class PRInfo:
+    number: int
+    title: str
+    state: str       # open / closed / merged
+    url: str
+    author: str
+    branch: str      # head / source branch
+
+
+def _detect_provider(repo_path: Path) -> str | None:
+    """Detect GitHub or GitLab from git remote URL."""
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True, cwd=repo_path, timeout=5,
+    )
+    if result.returncode != 0:
+        return None
+    url = result.stdout.strip().lower()
+    if "github.com" in url:
+        return "github"
+    if "gitlab" in url or os.environ.get("GITLAB_URL"):
+        return "gitlab"
+    return None
+
+
+def _get_api_token(provider: str) -> str | None:
+    """Resolve API token from environment variables."""
+    if provider == "github":
+        return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if provider == "gitlab":
+        return os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_PAT")
+    return None
+
+
+def _get_api_repo(repo_path: Path, provider: str) -> str:
+    """Resolve repo identifier from git remote (owner/repo for GitHub, URL-encoded path for GitLab)."""
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True, cwd=repo_path, timeout=5,
+    )
+    url = result.stdout.strip()
+    # Parse owner/repo from SSH or HTTPS URL
+    # git@github.com:owner/repo.git  →  owner/repo
+    # https://github.com/owner/repo.git  →  owner/repo
+    # git@gitlab.com:group/subgroup/repo.git  →  group/subgroup/repo
+    import re as _re
+    # Strip protocol/host for HTTPS, or after last : for SSH
+    clean = _re.sub(r"^https?://[^/]+/", "", url)  # HTTPS → path after domain
+    clean = _re.sub(r"^git@[^:]+:", "", clean)     # SSH → path after colon
+    clean = clean.rstrip("/")
+    if clean.endswith(".git"):
+        clean = clean[:-4]
+    if not clean:
+        raise RuntimeError(f"Cannot parse repo from remote URL: {url}")
+    path = clean
+    if provider == "gitlab":
+        import urllib.parse
+        return urllib.parse.quote(path, safe="")
+    return path
+
+
+def _api_get(repo_path: Path, endpoint: str) -> dict:
+    """Make an authenticated GET request to GitHub or GitLab API using stdlib."""
+    import json as _json
+    import urllib.request
+    import urllib.error
+
+    provider = _detect_provider(repo_path)
+    if not provider:
+        raise RuntimeError("No GitHub/GitLab remote detected")
+    token = _get_api_token(provider)
+    if not token:
+        env = "GITHUB_TOKEN" if provider == "github" else "GITLAB_TOKEN"
+        raise RuntimeError(f"Set {env} env var for PR integration")
+
+    repo = _get_api_repo(repo_path, provider)
+    if provider == "github":
+        base = "https://api.github.com"
+        url = f"{base}/repos/{repo}/{endpoint}"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    else:
+        base = os.environ.get("GITLAB_URL", "https://gitlab.com").rstrip("/")
+        url = f"{base}/api/v4/projects/{repo}/{endpoint}"
+        headers = {"PRIVATE-TOKEN": token}
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return _json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"API error {e.code}: {e.reason}")
+
+
+def list_open_prs(repo_path: Path) -> list[PRInfo]:
+    """List open PRs/MRs for the repository."""
+    provider = _detect_provider(repo_path)
+    if not provider:
+        return []
+    token = _get_api_token(provider)
+    if not token:
+        return []
+    try:
+        data = _api_get(repo_path, "pulls?state=open" if provider == "github" else "merge_requests?state=opened")
+    except RuntimeError:
+        return []
+    prs: list[PRInfo] = []
+    for item in data:
+        if provider == "github":
+            prs.append(PRInfo(
+                number=item["number"],
+                title=item["title"],
+                state=item["state"],
+                url=item["html_url"],
+                author=item["user"]["login"],
+                branch=item["head"]["ref"],
+            ))
+        else:
+            prs.append(PRInfo(
+                number=item["iid"],
+                title=item["title"],
+                state=item["state"],
+                url=item["web_url"],
+                author=item["author"]["username"],
+                branch=item["source_branch"],
+            ))
+    return prs
+
+
+def get_pr_for_branch(repo_path: Path, branch: str) -> PRInfo | None:
+    """Get the open PR/MR for a specific branch, if any."""
+    provider = _detect_provider(repo_path)
+    if not provider:
+        return None
+    token = _get_api_token(provider)
+    if not token:
+        return None
+    try:
+        if provider == "github":
+            data = _api_get(repo_path, f"pulls?state=open&head={_get_api_repo(repo_path, provider)}:{branch}")
+        else:
+            data = _api_get(repo_path, f"merge_requests?state=opened&source_branch={branch}")
+    except RuntimeError:
+        return None
+    if not data:
+        return None
+    item = data[0]
+    if provider == "github":
+        return PRInfo(
+            number=item["number"], title=item["title"], state=item["state"],
+            url=item["html_url"], author=item["user"]["login"], branch=item["head"]["ref"],
+        )
+    return PRInfo(
+        number=item["iid"], title=item["title"], state=item["state"],
+        url=item["web_url"], author=item["author"]["username"], branch=item["source_branch"],
+    )
