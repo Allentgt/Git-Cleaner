@@ -1596,6 +1596,9 @@ class WorktreesContent(Vertical):
         padding: 0 1;
         color: $text-muted;
     }
+    .task-row {
+        dock: bottom;
+    }
     """
 
     def __init__(self, repo_path: Path) -> None:
