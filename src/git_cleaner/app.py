@@ -1476,7 +1476,7 @@ class CompareContent(Vertical):
     def _run_comparison(self) -> None:
         base_sel = self.query_one("#compare-base", Select)
         target_sel = self.query_one("#compare-target", Select)
-        if isinstance(base_sel.value, Select.NoSelection) or isinstance(target_sel.value, Select.NoSelection):
+        if base_sel.value is Select.NULL or target_sel.value is Select.NULL:
             self.query_one("#compare-summary", Label).update("Select both branches.")
             return
         base = base_sel.value
