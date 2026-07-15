@@ -54,6 +54,24 @@ def matches_any(name: str, patterns: list[str]) -> bool:
 _DEFAULT_THEME = "textual-dark"
 
 
+def _replace_toml_section(section: str, content: str) -> None:
+    """Replace a TOML section in the global config file, preserving other sections."""
+    lines = _GLOBAL_CFG.read_text().splitlines() if _GLOBAL_CFG.exists() else []
+    out: list[str] = []
+    in_section = False
+    for line in lines:
+        s = line.strip()
+        if s == f"[{section}]":
+            in_section = True
+            continue
+        if s.startswith("["):
+            in_section = False
+        if not in_section:
+            out.append(line)
+    out += ["", f"[{section}]", content]
+    _GLOBAL_CFG.write_text("\n".join(out) + "\n")
+
+
 def load_theme() -> str:
     """Return the saved theme name, or the default."""
     cfg = _load_toml(_GLOBAL_CFG)
@@ -62,20 +80,7 @@ def load_theme() -> str:
 
 def save_theme(theme_name: str) -> None:
     """Persist the theme name to the global config file."""
-    lines = _GLOBAL_CFG.read_text().splitlines() if _GLOBAL_CFG.exists() else []
-    out: list[str] = []
-    in_theme = False
-    for line in lines:
-        s = line.strip()
-        if s == "[theme]":
-            in_theme = True
-            continue
-        if s.startswith("["):
-            in_theme = False
-        if not in_theme:
-            out.append(line)
-    out += ["", "[theme]", f'name = "{theme_name}"']
-    _GLOBAL_CFG.write_text("\n".join(out) + "\n")
+    _replace_toml_section("theme", f'name = "{theme_name}"')
 
 
 # ── Repository bookmarks ────────────────────────────────────────────────
@@ -89,21 +94,8 @@ def load_bookmarks() -> list[str]:
 
 def save_bookmarks(bookmarks: list[str]) -> None:
     """Persist bookmarks to the global config file."""
-    lines = _GLOBAL_CFG.read_text().splitlines() if _GLOBAL_CFG.exists() else []
-    out: list[str] = []
-    in_section = False
-    for line in lines:
-        s = line.strip()
-        if s == "[bookmarks]":
-            in_section = True
-            continue
-        if s.startswith("["):
-            in_section = False
-        if not in_section:
-            out.append(line)
     quoted = [f"'{p}'" for p in bookmarks]
-    out += ["", "[bookmarks]", f"paths = [{', '.join(quoted)}]"]
-    _GLOBAL_CFG.write_text("\n".join(out) + "\n")
+    _replace_toml_section("bookmarks", f"paths = [{', '.join(quoted)}]")
 
 
 def add_bookmark(path: str) -> None:

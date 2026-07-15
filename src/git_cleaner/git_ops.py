@@ -1,5 +1,10 @@
+import json
 import os
+import re
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -324,21 +329,24 @@ def list_worktrees(repo_path: Path) -> list[WorktreeInfo]:
     worktrees: list[WorktreeInfo] = []
     current: dict[str, str | bool] = {}
 
+    def _flush() -> None:
+        if current.get("path"):
+            worktrees.append(WorktreeInfo(
+                path=str(current["path"]),
+                head=str(current.get("head", "")),
+                branch=str(current.get("branch", "")),
+                is_bare=bool(current.get("bare")),
+                is_detached=bool(current.get("detached")),
+                is_locked=bool(current.get("locked")),
+                lock_reason=str(current.get("lock_reason", "")),
+                is_prunable=bool(current.get("prunable")),
+                prune_reason=str(current.get("prune_reason", "")),
+            ))
+            current.clear()
+
     for line in result.stdout.splitlines():
         if line == "":
-            if current.get("path"):
-                worktrees.append(WorktreeInfo(
-                    path=str(current["path"]),
-                    head=str(current.get("head", "")),
-                    branch=str(current.get("branch", "")),
-                    is_bare=bool(current.get("bare")),
-                    is_detached=bool(current.get("detached")),
-                    is_locked=bool(current.get("locked")),
-                    lock_reason=str(current.get("lock_reason", "")),
-                    is_prunable=bool(current.get("prunable")),
-                    prune_reason=str(current.get("prune_reason", "")),
-                ))
-                current = {}
+            _flush()
             continue
         if line.startswith("worktree "):
             current["path"] = line[9:]
@@ -360,20 +368,7 @@ def list_worktrees(repo_path: Path) -> list[WorktreeInfo]:
             if len(line) > 9:
                 current["prune_reason"] = line[9:]
 
-    # Flush last record
-    if current.get("path"):
-        worktrees.append(WorktreeInfo(
-            path=str(current["path"]),
-            head=str(current.get("head", "")),
-            branch=str(current.get("branch", "")),
-            is_bare=bool(current.get("bare")),
-            is_detached=bool(current.get("detached")),
-            is_locked=bool(current.get("locked")),
-            lock_reason=str(current.get("lock_reason", "")),
-            is_prunable=bool(current.get("prunable")),
-            prune_reason=str(current.get("prune_reason", "")),
-        ))
-
+    _flush()
     return worktrees
 
 
@@ -478,7 +473,6 @@ def get_author_stats(repo_path: Path, ref: str = "HEAD") -> list[AuthorStats]:
                     authors[current_author]["last"] = current_date
         elif "file" in line and current_author:
             # Shortstat line: "N files changed, M insertions(+), K deletions(-)"
-            import re
             ins = re.search(r"(\d+) insertion", line)
             dele = re.search(r"(\d+) deletion", line)
             if ins:
@@ -506,7 +500,6 @@ def get_large_commits(repo_path: Path, ref: str = "HEAD", threshold: int = 50, l
     )
     if result.returncode != 0:
         return []
-    import re
     commits: list[CommitInfo] = []
     current: list[str] = []
     for line in result.stdout.strip().splitlines():
@@ -524,7 +517,6 @@ def get_large_commits(repo_path: Path, ref: str = "HEAD", threshold: int = 50, l
 
 def _maybe_add_large(out: list[CommitInfo], parts: list[str], threshold: int) -> None:
     """Parse a commit+shortstat pair and append if it exceeds threshold."""
-    import re
     if len(parts) < 2:
         return
     h, author, date_str, subject = parts[0].split("|", 3)
@@ -540,13 +532,13 @@ def _maybe_add_large(out: list[CommitInfo], parts: list[str], threshold: int) ->
 # ─── Repository health & maintenance ─────────────────────────────────────────
 
 
-def _human_size(bytes: int) -> str:
+def _human_size(num_bytes: int) -> str:
     """Convert bytes to human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
-        if bytes < 1024:
-            return f"{bytes:.1f} {unit}"
-        bytes //= 1024
-    return f"{bytes:.1f} TB"
+        if num_bytes < 1024:
+            return f"{num_bytes:.1f} {unit}"
+        num_bytes //= 1024
+    return f"{num_bytes:.1f} TB"
 
 
 def get_git_dir_size(repo_path: Path) -> str:
@@ -759,10 +751,9 @@ def _get_api_repo(repo_path: Path, provider: str) -> str:
     # git@github.com:owner/repo.git  →  owner/repo
     # https://github.com/owner/repo.git  →  owner/repo
     # git@gitlab.com:group/subgroup/repo.git  →  group/subgroup/repo
-    import re as _re
     # Strip protocol/host for HTTPS, or after last : for SSH
-    clean = _re.sub(r"^https?://[^/]+/", "", url)  # HTTPS → path after domain
-    clean = _re.sub(r"^git@[^:]+:", "", clean)     # SSH → path after colon
+    clean = re.sub(r"^https?://[^/]+/", "", url)  # HTTPS → path after domain
+    clean = re.sub(r"^git@[^:]+:", "", clean)     # SSH → path after colon
     clean = clean.rstrip("/")
     if clean.endswith(".git"):
         clean = clean[:-4]
@@ -770,26 +761,24 @@ def _get_api_repo(repo_path: Path, provider: str) -> str:
         raise RuntimeError(f"Cannot parse repo from remote URL: {url}")
     path = clean
     if provider == "gitlab":
-        import urllib.parse
         return urllib.parse.quote(path, safe="")
     return path
 
 
-def _api_get(repo_path: Path, endpoint: str) -> dict:
+def _api_get(repo_path: Path, endpoint: str, *, provider: str | None = None, token: str | None = None, repo: str | None = None) -> dict:
     """Make an authenticated GET request to GitHub or GitLab API using stdlib."""
-    import json as _json
-    import urllib.request
-    import urllib.error
-
-    provider = _detect_provider(repo_path)
+    if provider is None:
+        provider = _detect_provider(repo_path)
     if not provider:
         raise RuntimeError("No GitHub/GitLab remote detected")
-    token = _get_api_token(provider)
+    if token is None:
+        token = _get_api_token(provider)
     if not token:
         env = "GITHUB_TOKEN" if provider == "github" else "GITLAB_TOKEN"
         raise RuntimeError(f"Set {env} env var for PR integration")
+    if repo is None:
+        repo = _get_api_repo(repo_path, provider)
 
-    repo = _get_api_repo(repo_path, provider)
     if provider == "github":
         base = "https://api.github.com"
         url = f"{base}/repos/{repo}/{endpoint}"
@@ -802,7 +791,7 @@ def _api_get(repo_path: Path, endpoint: str) -> dict:
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            return _json.loads(resp.read())
+            return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"API error {e.code}: {e.reason}")
 
@@ -815,8 +804,10 @@ def list_open_prs(repo_path: Path) -> list[PRInfo]:
     token = _get_api_token(provider)
     if not token:
         return []
+    repo = _get_api_repo(repo_path, provider)
     try:
-        data = _api_get(repo_path, "pulls?state=open" if provider == "github" else "merge_requests?state=opened")
+        data = _api_get(repo_path, "pulls?state=open" if provider == "github" else "merge_requests?state=opened",
+                        provider=provider, token=token, repo=repo)
     except RuntimeError:
         return []
     prs: list[PRInfo] = []
@@ -850,11 +841,14 @@ def get_pr_for_branch(repo_path: Path, branch: str) -> PRInfo | None:
     token = _get_api_token(provider)
     if not token:
         return None
+    repo = _get_api_repo(repo_path, provider)
     try:
         if provider == "github":
-            data = _api_get(repo_path, f"pulls?state=open&head={_get_api_repo(repo_path, provider)}:{branch}")
+            data = _api_get(repo_path, f"pulls?state=open&head={repo}:{branch}",
+                            provider=provider, token=token, repo=repo)
         else:
-            data = _api_get(repo_path, f"merge_requests?state=opened&source_branch={branch}")
+            data = _api_get(repo_path, f"merge_requests?state=opened&source_branch={branch}",
+                            provider=provider, token=token, repo=repo)
     except RuntimeError:
         return None
     if not data:
@@ -869,3 +863,44 @@ def get_pr_for_branch(repo_path: Path, branch: str) -> PRInfo | None:
         number=item["iid"], title=item["title"], state=item["state"],
         url=item["web_url"], author=item["author"]["username"], branch=item["source_branch"],
     )
+
+
+# ─── Cross-repo stale branch detection ────────────────────────────────────
+
+
+@dataclass
+class StaleBranchInfo:
+    repo: str
+    name: str
+    age_days: int
+    author: str
+    last_commit: str  # ISO date
+
+
+def get_stale_branches_across_repos(
+    repo_paths: list[str],
+    threshold_days: int = 180,
+) -> list[StaleBranchInfo]:
+    """Find stale branches across multiple repos. Skips paths that aren't git repos."""
+    now = datetime.now(timezone.utc)
+    results: list[StaleBranchInfo] = []
+    for path_str in repo_paths:
+        repo_path = Path(path_str)
+        if not (repo_path / ".git").is_dir():
+            continue
+        try:
+            branches = list_branches(repo_path)
+        except RuntimeError:
+            continue
+        for b in branches:
+            age = (now - b.commit_date).days
+            if age > threshold_days:
+                results.append(StaleBranchInfo(
+                    repo=str(repo_path),
+                    name=b.name,
+                    age_days=age,
+                    author=b.author,
+                    last_commit=b.commit_date.strftime("%Y-%m-%d"),
+                ))
+    results.sort(key=lambda x: -x.age_days)
+    return results
