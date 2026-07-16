@@ -1,16 +1,19 @@
-![Git Cleaner](https://raw.githubusercontent.com/Allentgt/Git-Cleaner/main/logo/logo.png)
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Git Cleaner — TUI for browsing and bulk-deleting git branches">
+</p>
 
-TUI tool for interactively browsing and bulk-deleting git branches, with repo maintenance (GC, repack, prune), a stash browser, and multi-repo bookmarks.
+<h3 align="center">Interactively browse, filter, and bulk-delete git branches from a fast terminal UI.</h3>
 
-![Python](https://img.shields.io/badge/python-3.11+-blue?logo=python)
-![Textual](https://img.shields.io/badge/textual-8.x-orange)
-![License](https://img.shields.io/badge/license-MIT-green)
-
-Built with [Textual](https://textual.textualize.io/) + Python 3.11+.
+<p align="center">
+  <a href="https://pypi.org/project/git-cleaner-tui/"><img src="https://img.shields.io/pypi/v/git-cleaner-tui?color=238636&label=PyPI" alt="PyPI"></a>
+  <img src="https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/textual-8.x-ef8340?logo=terminal&logoColor=white" alt="Textual 8.x">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+</p>
 
 ---
 
-## Installation
+## Install
 
 ```bash
 uv tool install git-cleaner-tui
@@ -26,39 +29,34 @@ uv sync
 uv run git-cleaner-tui --repo /path/to/repo
 ```
 
-Requires Python ≥ 3.11, uv (or pip), and a git repository.
+Requires Python ≥ 3.11, [uv](https://docs.astral.sh/uv/) (or pip), and a git repository.
 
 ---
 
 ## Features
 
-- **🗓️ Date filtering** — Pick From/Until dates (calendar picker) or use presets: 7d, 30d, 90d, 1y
-- **🔍 Branch browser** — Tree view with prefix grouping (`feature/`, `bugfix/`, …), ahead/behind tracking, stale badge (>180d), details pane on select
-- **🛡️ Protection** — `main`/`master`/`develop` + custom patterns from `.git-branch-cleaner.toml`; cannot be selected
-- **⛔ Blacklist** — Wildcard patterns (`archive/*`); hidden by default
-- **☁️ Remote deletion** — Toggle `r` to also delete on remote (`git push origin --delete`)
-- **🧪 Dry Run** — Toggle to preview deletions without executing
-- **↩️ Undo** — Press `u` to restore the last batch via reflog (`git branch <name> <hash>`)
-- **📥 CSV/JSON export** — Download filtered branch list to CWD
-- **🔧 Maintenance dashboard** — Repo health stats + GC/Repack/Prune/Reflog tasks
-- **📦 Stash browser** — List/drop/apply/pop stashes from the Stashes tab
-- **🔖 Multi-repo bookmarks** — `Ctrl+B` to save and switch between repos
-- **⚡ Fast** — Single `git for-each-ref` call; bulk delete with one confirm
+| | Feature | Details |
+|---|---------|---------|
+| 🌳 | **Tree view** | Branches grouped by prefix (`feature/`, `bugfix/`, …) with ahead/behind tracking |
+| 📅 | **Date filtering** | Calendar picker or presets: 7d, 30d, 90d, 1y |
+| 🛡️ | **Protection** | `main`/`master`/`develop` + custom patterns; cannot be selected |
+| ⛔ | **Blacklist** | Wildcard patterns (`archive/*`); hidden by default |
+| ☁️ | **Remote deletion** | Toggle `r` to also `git push origin --delete` |
+| 🧪 | **Dry run** | Preview deletions without executing |
+| ↩️ | **Undo** | Press `u` to restore the last batch via reflog |
+| 📥 | **Export** | Download filtered branch list as CSV or JSON |
+| 🔧 | **Maintenance** | GC, Repack, Prune, Reflog expiry — one click |
+| 📦 | **Stash browser** | List, drop, apply, pop stashes |
+| 🔖 | **Bookmarks** | `Ctrl+B` to save and switch between repos |
+| ⚡ | **Fast** | Single `git for-each-ref` call; bulk delete with one confirm |
 
 ---
 
-## Usage
-
-```bash
-git-cleaner-tui
-# or: git-cleaner-tui --repo /path/to/repo
-```
-
-### Branches Tab
+## Keybindings
 
 | Key | Action |
 |-----|--------|
-| `Space` | Toggle selection |
+| `Space` | Toggle branch selection |
 | `a` | Select / deselect all |
 | `d` | Delete selected (with confirmation) |
 | `r` | Toggle remote deletion |
@@ -68,25 +66,11 @@ git-cleaner-tui
 | `Ctrl+R` | Refresh |
 | `Ctrl+B` | Open bookmarks |
 
-Date presets (7d/30d/90d/1y) sit next to the Load button. Branches appear grouped by prefix in a collapsible Tree. Select a leaf node to see its last-commit details.
-
-### Maintenance Tab
-
-Health stats and one‑click tasks: Git GC, GC Aggressive, Repack, Prune Remote, Expire Reflog, or Run All (sequential). Runs async — UI stays responsive.
-
-### Stashes Tab
-
-DataTable of all stashes with Drop / Apply / Pop / Refresh buttons.
-
-### Bookmarks
-
-`Ctrl+B` opens a modal to add the current repo, remove it, or switch to a bookmarked repo. Persisted in `~/.git-branch-cleaner.toml`.
-
 ---
 
 ## Configuration
 
-`~/.git-branch-cleaner.toml` (global) or `.git-branch-cleaner.toml` (per‑repo):
+`~/.git-branch-cleaner.toml` (global) or `.git-branch-cleaner.toml` (per-repo):
 
 ```toml
 [protected]
@@ -103,29 +87,13 @@ Hardcoded defaults (always active): `main`, `master`, `develop`. The checked-out
 
 ---
 
-## Keybindings
-
-| Tab | Key | Action |
-|-----|-----|--------|
-| Branches | `Space` | Toggle selection |
-| Branches | `a` | Select / deselect all |
-| Branches | `d` | Delete selected |
-| Branches | `r` | Toggle remote |
-| Branches | `p` | Toggle protected |
-| Branches | `b` | Toggle blacklisted |
-| Branches | `u` | Undo deletion |
-| Branches | `Ctrl+R` | Reload |
-| All | `Ctrl+B` | Bookmarks |
-
----
-
 ## Development
 
 ```bash
 git clone https://github.com/Allentgt/Git-Cleaner
 cd git-cleaner
 uv sync --dev
-uv run pytest        # 23 tests
+uv run pytest
 uv run git-cleaner-tui
 ```
 
@@ -133,17 +101,29 @@ uv run git-cleaner-tui
 
 ## FAQ
 
-**Q: Can I undo a deletion?**  
-Yes — press `u` immediately after deleting. Undo uses `git branch <name> <hash>` via the stored commit hash.
+<details>
+<summary><b>Can I undo a deletion?</b></summary>
 
-**Q: Does it work on Windows?**  
-Yes. Tested on Windows, macOS, Linux. Python 3.11+.
+Yes — press <code>u</code> immediately after deleting. Undo uses <code>git branch &lt;name&gt; &lt;hash&gt;</code> via the stored commit hash.
+</details>
 
-**Q: How are dates filtered?**  
+<details>
+<summary><b>Does it work on Windows?</b></summary>
+
+Yes. Tested on Windows, macOS, and Linux. Python 3.11+.
+</details>
+
+<details>
+<summary><b>How are dates filtered?</b></summary>
+
 By the commit date of the branch tip. Both From and Until are inclusive.
+</details>
 
-**Q: Does the maintenance dashboard modify my repo?**  
-It runs real git commands that modify `.git`. They don't change working tree files.
+<details>
+<summary><b>Does the maintenance dashboard modify my repo?</b></summary>
+
+It runs real git commands that modify <code>.git</code>. They don't change working tree files.
+</details>
 
 ---
 
