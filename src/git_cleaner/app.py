@@ -75,7 +75,7 @@ from git_cleaner.git_ops import (
     get_merge_base,
     get_diff_stat,
     get_shortstat,
-    get_commits_between,
+    get_commits_symmetric,
     list_worktrees,
     add_worktree,
     remove_worktree,
@@ -482,12 +482,12 @@ Tree:focus {
 /* === Stash browser === */
 #stash-table {
     height: 1fr;
-    margin: 0 1 1 1;
+    margin: 1 1 1 1;
 }
 
 #stash-actions {
     height: auto;
-    margin: 0 1;
+    margin: 1 1 1 1;
     align: center middle;
     overflow-x: auto;
 }
@@ -500,6 +500,131 @@ Tree:focus {
 #stash-status {
     height: 1;
     margin: 0 0 1 0;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* === PR/MR browser === */
+#pr-table {
+    height: 1fr;
+    margin: 1 1 1 1;
+}
+
+#pr-actions {
+    height: auto;
+    margin: 1 1 1 1;
+    align: center middle;
+    overflow-x: auto;
+}
+
+#pr-actions Button {
+    margin: 0 1;
+    min-width: 10;
+}
+
+#pr-actions > #pr-status {
+    width: 1fr;
+    content-align: right middle;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* === Stale branches browser === */
+#stale-table {
+    height: 1fr;
+    margin: 1 1 1 1;
+}
+
+#stale-actions {
+    height: auto;
+    margin: 1 1 1 1;
+    align: center middle;
+    overflow-x: auto;
+}
+
+#stale-actions Button {
+    margin: 0 1;
+    min-width: 10;
+}
+
+#stale-actions > #stale-status {
+    width: 1fr;
+    content-align: right middle;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* === Worktrees browser === */
+#wt-table {
+    height: 1fr;
+    margin: 1 1 1 1;
+}
+
+#wt-actions {
+    height: auto;
+    margin: 1 1 1 1;
+    align: center middle;
+    overflow-x: auto;
+}
+
+#wt-actions Button {
+    margin: 0 1;
+    min-width: 10;
+}
+
+#wt-actions > #wt-status {
+    width: 1fr;
+    content-align: right middle;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+/* === Commit analysis === */
+#commit-select-row {
+    height: 3;
+    padding: 0 1;
+    margin: 1 0 0 0;
+}
+
+#commit-log-table, #commit-authors-table, #commit-hotspots-table {
+    height: 1fr;
+    margin: 0 1 1 1;
+}
+
+/* === Compare branches === */
+#compare-select-row {
+    height: auto;
+    padding: 0 1;
+    margin: 1 0 0 0;
+    align: center middle;
+}
+
+#compare-select-row > Select {
+    width: 1fr;
+    margin: 0 1;
+}
+
+#compare-select-row > #compare-run {
+    margin: 0 1;
+}
+
+#compare-result {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 0 1;
+    margin: 1 1 1 1;
+}
+
+#compare-actions {
+    height: auto;
+    margin: 1 1 1 1;
+    align: center middle;
+    overflow-x: auto;
+}
+
+#compare-actions > #compare-summary {
+    width: 1fr;
+    content-align: right middle;
     padding: 0 2;
     color: $text-muted;
 }
@@ -1393,19 +1518,12 @@ class CommitAnalysisContent(Vertical):
     CommitAnalysisContent {
         height: 1fr;
     }
-    #commit-select-row {
-        height: 3;
-        padding: 0 1;
-    }
     #commit-select-row > Label {
         width: auto;
         margin: 0 1 0 0;
     }
     #commit-select-row > Select {
         width: 1fr;
-    }
-    #commit-log-table, #commit-authors-table, #commit-hotspots-table {
-        height: 1fr;
     }
     #commit-status {
         height: 1;
@@ -1424,13 +1542,13 @@ class CommitAnalysisContent(Vertical):
             yield Label("Branch:")
             yield Select([], id="commit-branch-select", prompt="Select branch", allow_blank=True, compact=True)
             yield Button("Load", id="commit-load", classes="task-button", variant="primary")
+        yield DataTable(id="commit-log-table")
+        yield DataTable(id="commit-authors-table")
+        yield DataTable(id="commit-hotspots-table")
         with Horizontal(classes="task-row"):
             yield Button("Log", id="commit-show-log", classes="task-button", variant="default")
             yield Button("Authors", id="commit-show-authors", classes="task-button", variant="default")
             yield Button("Hotspots", id="commit-show-hotspots", classes="task-button", variant="default")
-        yield DataTable(id="commit-log-table")
-        yield DataTable(id="commit-authors-table")
-        yield DataTable(id="commit-hotspots-table")
         yield Static(id="commit-status")
 
     def on_mount(self) -> None:
@@ -1506,14 +1624,6 @@ class PRIntegrationContent(Vertical):
     PRIntegrationContent {
         height: 1fr;
     }
-    #pr-table {
-        height: 1fr;
-    }
-    #pr-status {
-        height: 1;
-        padding: 0 1;
-        color: $text-muted;
-    }
     """
 
     def __init__(self, repo_path: Path) -> None:
@@ -1523,10 +1633,10 @@ class PRIntegrationContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="pr-table")
-        yield Static(id="pr-status")
         with Horizontal(id="pr-actions", classes="task-row"):
             yield Button("Open in Browser", id="pr-open", classes="task-button", variant="primary")
             yield Button("Refresh", id="pr-refresh", classes="task-button", variant="default")
+            yield Static(id="pr-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#pr-table", DataTable)
@@ -1570,14 +1680,6 @@ class StaleReposContent(Vertical):
     StaleReposContent {
         height: 1fr;
     }
-    #stale-table {
-        height: 1fr;
-    }
-    #stale-status {
-        height: 1;
-        padding: 0 1;
-        color: $text-muted;
-    }
     """
 
     def __init__(self, repo_path: Path) -> None:
@@ -1587,9 +1689,9 @@ class StaleReposContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="stale-table")
-        yield Static(id="stale-status")
         with Horizontal(id="stale-actions", classes="task-row"):
             yield Button("Refresh", id="stale-refresh", classes="task-button", variant="default")
+            yield Static(id="stale-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#stale-table", DataTable)
@@ -1629,26 +1731,9 @@ class CompareContent(Vertical):
     CompareContent {
         height: 1fr;
     }
-    #compare-select-row {
-        height: 3;
-        padding: 0 1;
-    }
     #compare-select-row > Label {
         width: auto;
         margin: 0 1 0 0;
-    }
-    #compare-select-row > Select {
-        width: 1fr;
-    }
-    #compare-result {
-        height: 1fr;
-        overflow-y: auto;
-        padding: 0 1;
-    }
-    #compare-summary {
-        height: auto;
-        padding: 0 1;
-        color: $text-muted;
     }
     """
 
@@ -1659,14 +1744,14 @@ class CompareContent(Vertical):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="compare-select-row"):
-            yield Label("Base:")
-            yield Select([], id="compare-base", prompt="Select base branch", allow_blank=True, compact=True)
-            yield Label("Compare:")
+            yield Label("Source:")
+            yield Select([], id="compare-base", prompt="Select source branch", allow_blank=True, compact=True)
+            yield Label("Target:")
             yield Select([], id="compare-target", prompt="Select target branch", allow_blank=True, compact=True)
-        with Horizontal(classes="task-row"):
-            yield Button("Compare", id="compare-run", classes="task-button", variant="primary")
-        yield Label("", id="compare-summary")
+            yield Button("Compare", id="compare-run", variant="primary", classes="task-button")
         yield Static("Select two branches and press Compare.", id="compare-result")
+        with Horizontal(id="compare-actions"):
+            yield Label("", id="compare-summary")
 
     def on_mount(self) -> None:
         self._load_branch_names()
@@ -1705,18 +1790,31 @@ class CompareContent(Vertical):
             self.query_one("#compare-summary", Label).update(f"Error: {e}")
             return
 
+        ahead, behind = get_commits_symmetric(self.repo_path, base, target)
         stats = get_diff_stat(self.repo_path, base, target)
         summary = get_shortstat(self.repo_path, base, target)
-        commits = get_commits_between(self.repo_path, base, target)
 
-        lines = [f"[bold]{base}[/] → [bold]{target}[/]  (merge-base: {merge_base[:8]})"]
-        lines.append(f"\n[bold]Summary:[/] {summary or 'No differences'}")
-        if commits:
-            lines.append(f"\n[bold]Commits ({len(commits)}):[/]")
-            for sha, subject in commits[:30]:
-                lines.append(f"  {sha}  {subject}")
-            if len(commits) > 30:
-                lines.append(f"  ... and {len(commits) - 30} more")
+        lines = [f"[bold]{base}[/] ↔ [bold]{target}[/]  (merge-base: {merge_base[:8]})"]
+        total_commits = len(ahead) + len(behind)
+        if total_commits == 0:
+            lines.append("\n[bold]No differences[/] — branches are identical.")
+        else:
+            lines.append(
+                f"\n[bold]Summary:[/] {summary}  "
+                f"[green]+{len(ahead)} ahead[/] [red]-{len(behind)} behind[/]"
+            )
+            if ahead:
+                lines.append(f"\n[bold]{base} ahead ({len(ahead)}):[/]")
+                for sha, subject in ahead[:30]:
+                    lines.append(f"  [green]>[/] {sha}  {subject}")
+                if len(ahead) > 30:
+                    lines.append(f"  ... and {len(ahead) - 30} more")
+            if behind:
+                lines.append(f"\n[bold]{target} ahead ({len(behind)}):[/]")
+                for sha, subject in behind[:30]:
+                    lines.append(f"  [red]<[/] {sha}  {subject}")
+                if len(behind) > 30:
+                    lines.append(f"  ... and {len(behind) - 30} more")
         if stats:
             lines.append(f"\n[bold]Files changed ({len(stats)}):[/]")
             for added, removed, path in stats[:50]:
@@ -1725,7 +1823,7 @@ class CompareContent(Vertical):
             if len(stats) > 50:
                 lines.append(f"  ... and {len(stats) - 50} more")
         self.query_one("#compare-summary", Label).update(
-            f"{len(commits)} commits, {len(stats)} files"
+            f"{total_commits} commit(s), {len(stats)} file(s)"
         )
         self.query_one("#compare-result", Static).update("\n".join(lines))
 
@@ -1801,14 +1899,6 @@ class WorktreesContent(Vertical):
     WorktreesContent {
         height: 1fr;
     }
-    #wt-table {
-        height: 1fr;
-    }
-    #wt-status {
-        height: 1;
-        padding: 0 1;
-        color: $text-muted;
-    }
     """
 
     def __init__(self, repo_path: Path) -> None:
@@ -1818,12 +1908,12 @@ class WorktreesContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="wt-table")
-        yield Static(id="wt-status")
         with Horizontal(id="wt-actions", classes="task-row"):
             yield Button("Add", id="wt-add", classes="task-button", variant="primary")
             yield Button("Remove", id="wt-remove", classes="task-button", variant="error")
             yield Button("Prune", id="wt-prune", classes="task-button", variant="warning")
             yield Button("Refresh", id="wt-refresh", classes="task-button", variant="default")
+            yield Static(id="wt-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#wt-table", DataTable)

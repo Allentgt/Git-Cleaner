@@ -261,9 +261,12 @@ def get_merge_base(repo_path: Path, ref1: str, ref2: str) -> str:
 
 
 def get_diff_stat(repo_path: Path, ref1: str, ref2: str) -> list[tuple[str, str, str]]:
-    """Return file-level diff stats between two refs as (added, removed, path)."""
+    """Return file-level diff stats between two refs as (added, removed, path).
+
+    Uses symmetric two-dot: shows the full diff between ref1 and ref2.
+    """
     result = subprocess.run(
-        ["git", "diff", "--numstat", f"{ref1}...{ref2}"],
+        ["git", "diff", "--numstat", ref1, ref2],
         capture_output=True, text=True, cwd=repo_path, timeout=10,
     )
     if result.returncode != 0:
@@ -277,28 +280,41 @@ def get_diff_stat(repo_path: Path, ref1: str, ref2: str) -> list[tuple[str, str,
 
 
 def get_shortstat(repo_path: Path, ref1: str, ref2: str) -> str:
-    """Return shortstat summary string between two refs."""
+    """Return shortstat summary string between two refs (symmetric)."""
     result = subprocess.run(
-        ["git", "diff", "--shortstat", f"{ref1}...{ref2}"],
+        ["git", "diff", "--shortstat", ref1, ref2],
         capture_output=True, text=True, cwd=repo_path, timeout=10,
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def get_commits_between(repo_path: Path, ref1: str, ref2: str, limit: int = 50) -> list[tuple[str, str]]:
-    """Return (sha, subject) for commits on ref2 not in ref1."""
+def get_commits_symmetric(repo_path: Path, ref1: str, ref2: str, limit: int = 50) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Return (ahead, behind) commits between ref1 and ref2.
+
+    ahead = commits in ref1 not in ref2 (prefixed with <)
+    behind = commits in ref2 not in ref1 (prefixed with >)
+
+    Uses symmetric three-dot notation so no direction is left out.
+    """
     result = subprocess.run(
-        ["git", "log", "--oneline", "--no-merges", f"{ref1}..{ref2}", f"-n{limit}"],
+        ["git", "log", "--oneline", "--left-right", "--no-merges", f"{ref1}...{ref2}", f"-n{limit}"],
         capture_output=True, text=True, cwd=repo_path, timeout=10,
     )
-    if result.returncode != 0:
-        return []
-    commits: list[tuple[str, str]] = []
+    ahead: list[tuple[str, str]] = []
+    behind: list[tuple[str, str]] = []
+    if result.returncode != 0 or not result.stdout.strip():
+        return ahead, behind
     for line in result.stdout.strip().splitlines():
-        sha, _, subject = line.partition(" ")
+        if len(line) < 2 or line[0] not in ("<", ">"):
+            continue
+        sha, _, subject = line[1:].strip().partition(" ")
         if sha:
-            commits.append((sha[:7], subject))
-    return commits
+            entry = (sha[:7], subject)
+            if line[0] == "<":
+                ahead.append(entry)
+            else:
+                behind.append(entry)
+    return ahead, behind
 
 
 # ─── Worktree operations ────────────────────────────────────────────────
