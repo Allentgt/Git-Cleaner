@@ -549,13 +549,14 @@ class BranchesContent(Vertical):
             yield Button("1y", id="preset-1y", classes="preset-btn")
             yield Button("Load Branches", id="load-btn", variant="primary")
         with Horizontal(id="filter-row"):
-            yield Input(placeholder="Search branches...", id="search-input")
-            yield Select([], id="author-select", prompt="All authors", allow_blank=True)
+            yield Input(placeholder="Search branches...", id="search-input", compact=True)
+            yield Select([], id="author-select", prompt="All authors", allow_blank=True, compact=True)
             yield Select(
                 [("7 days", 7), ("30 days", 30), ("90 days", 90), ("180 days", 180), ("1 year", 365)],
                 id="age-select",
                 prompt="All ages",
                 allow_blank=True,
+                compact=True,
             )
         yield Tree("", id="branch-table")
         yield Vertical(Static("Click a branch to see details", id="details-content"), id="details-pane")
@@ -1421,7 +1422,7 @@ class CommitAnalysisContent(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="commit-select-row"):
             yield Label("Branch:")
-            yield Select([], id="commit-branch-select", prompt="Select branch", allow_blank=True)
+            yield Select([], id="commit-branch-select", prompt="Select branch", allow_blank=True, compact=True)
             yield Button("Load", id="commit-load", classes="task-button", variant="primary")
         with Horizontal(classes="task-row"):
             yield Button("Log", id="commit-show-log", classes="task-button", variant="default")
@@ -1504,11 +1505,7 @@ class PRIntegrationContent(Vertical):
     #pr-table {
         height: 1fr;
     }
-    #pr-actions {
-        dock: bottom;
-    }
     #pr-status {
-        dock: bottom;
         height: 1;
         padding: 0 1;
         color: $text-muted;
@@ -1572,11 +1569,7 @@ class StaleReposContent(Vertical):
     #stale-table {
         height: 1fr;
     }
-    #stale-actions {
-        dock: bottom;
-    }
     #stale-status {
-        dock: bottom;
         height: 1;
         padding: 0 1;
         color: $text-muted;
@@ -1663,9 +1656,9 @@ class CompareContent(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="compare-select-row"):
             yield Label("Base:")
-            yield Select([], id="compare-base", prompt="Select base branch", allow_blank=True)
+            yield Select([], id="compare-base", prompt="Select base branch", allow_blank=True, compact=True)
             yield Label("Compare:")
-            yield Select([], id="compare-target", prompt="Select target branch", allow_blank=True)
+            yield Select([], id="compare-target", prompt="Select target branch", allow_blank=True, compact=True)
         with Horizontal(classes="task-row"):
             yield Button("Compare", id="compare-run", classes="task-button", variant="primary")
         yield Label("", id="compare-summary")
@@ -1803,11 +1796,7 @@ class WorktreesContent(Vertical):
     #wt-table {
         height: 1fr;
     }
-    #wt-actions {
-        dock: bottom;
-    }
     #wt-status {
-        dock: bottom;
         height: 1;
         padding: 0 1;
         color: $text-muted;
