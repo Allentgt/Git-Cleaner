@@ -1443,7 +1443,11 @@ class CommitAnalysisContent(Vertical):
         self.query_one("#commit-hotspots-table", DataTable).add_columns("Hash", "Author", "Date", "Subject")
 
     def _load_branch_names(self) -> None:
-        branches = list_branches(self.repo_path)
+        try:
+            branches = list_branches(self.repo_path)
+        except RuntimeError as e:
+            self.query_one("#commit-status", Static).update(str(e))
+            return
         self.branch_names = [b.name for b in branches]
         sel = self.query_one("#commit-branch-select", Select)
         sel.set_options([(b, b) for b in self.branch_names])
@@ -1519,10 +1523,10 @@ class PRIntegrationContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="pr-table")
+        yield Static(id="pr-status")
         with Horizontal(id="pr-actions", classes="task-row"):
             yield Button("Open in Browser", id="pr-open", classes="task-button", variant="primary")
             yield Button("Refresh", id="pr-refresh", classes="task-button", variant="default")
-        yield Static(id="pr-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#pr-table", DataTable)
@@ -1583,9 +1587,9 @@ class StaleReposContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="stale-table")
+        yield Static(id="stale-status")
         with Horizontal(id="stale-actions", classes="task-row"):
             yield Button("Refresh", id="stale-refresh", classes="task-button", variant="default")
-        yield Static(id="stale-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#stale-table", DataTable)
@@ -1668,7 +1672,11 @@ class CompareContent(Vertical):
         self._load_branch_names()
 
     def _load_branch_names(self) -> None:
-        branches = list_branches(self.repo_path)
+        try:
+            branches = list_branches(self.repo_path)
+        except RuntimeError as e:
+            self.query_one("#compare-summary", Label).update(str(e))
+            return
         self.branch_names = [b.name for b in branches]
         base_sel = self.query_one("#compare-base", Select)
         target_sel = self.query_one("#compare-target", Select)
@@ -1810,12 +1818,12 @@ class WorktreesContent(Vertical):
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="wt-table")
+        yield Static(id="wt-status")
         with Horizontal(id="wt-actions", classes="task-row"):
             yield Button("Add", id="wt-add", classes="task-button", variant="primary")
             yield Button("Remove", id="wt-remove", classes="task-button", variant="error")
             yield Button("Prune", id="wt-prune", classes="task-button", variant="warning")
             yield Button("Refresh", id="wt-refresh", classes="task-button", variant="default")
-        yield Static(id="wt-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#wt-table", DataTable)
