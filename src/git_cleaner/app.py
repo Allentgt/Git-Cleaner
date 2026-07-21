@@ -903,13 +903,13 @@ class BranchesContent(Vertical):
             if local:
                 local_node = tree.root.add(f"Local ({len(local)})", data=None)
                 local_node.expand()
-                self._build_subtree(local_node, local, strip_remote=False)
+                self._build_subtree(local_node, local)
             if remote:
                 remote_node = tree.root.add(f"Remote ({len(remote)})", data=None)
                 remote_node.expand()
-                self._build_subtree(remote_node, remote, strip_remote=True)
+                self._build_subtree(remote_node, remote)
         else:
-            self._build_subtree(tree.root, filtered, strip_remote=False)
+            self._build_subtree(tree.root, filtered)
 
     def _get_remote_names(self) -> list[str]:
         """Return list of remote names (e.g. ['origin'])."""
@@ -923,15 +923,13 @@ class BranchesContent(Vertical):
             pass
         return ["origin"]  # ponytail: fallback if git remote fails
 
-    def _build_subtree(self, parent, branches: list[BranchInfo], strip_remote: bool = False) -> None:
+    def _build_subtree(self, parent, branches: list[BranchInfo]) -> None:
         """Build recursively nested prefix-grouped subtree under a parent node."""
         groups: dict[str, list[BranchInfo]] = {}
         noprefix: list[BranchInfo] = []
 
         for b in branches:
             name = b.name
-            if strip_remote and "/" in name:
-                name = name.split("/", 1)[1]
             if "/" in name:
                 prefix = name.split("/", 1)[0]
                 groups.setdefault(prefix, []).append(b)
@@ -946,7 +944,7 @@ class BranchesContent(Vertical):
             group_node = parent.add(f"{prefix} ({len(group_branches)})", data=None)
             group_node.expand()
             # Recurse for nested paths (e.g. auth/login under feature)
-            self._build_subtree(group_node, group_branches, strip_remote=False)
+            self._build_subtree(group_node, group_branches)
 
     def _refresh_table(self) -> None:
         self._build_tree()
