@@ -26,7 +26,7 @@ Or from source:
 git clone https://github.com/Allentgt/Git-Cleaner
 cd git-cleaner
 uv sync
-uv run git-cleaner --repo /path/to/repo
+uv run git-cleaner-tui --repo /path/to/repo
 ```
 
 Requires Python ≥ 3.11, [uv](https://docs.astral.sh/uv/) (or pip), and a git repository.
