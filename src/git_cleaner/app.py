@@ -923,13 +923,19 @@ class BranchesContent(Vertical):
             pass
         return ["origin"]  # ponytail: fallback if git remote fails
 
-    def _build_subtree(self, parent, branches: list[BranchInfo]) -> None:
-        """Build recursively nested prefix-grouped subtree under a parent node."""
+    def _build_subtree(self, parent, branches: list[BranchInfo], path_prefix: str = "") -> None:
+        """Build recursively nested prefix-grouped subtree under a parent node.
+
+        path_prefix tracks already-consumed path segments so recursion
+        terminates — b.name is never mutated (preserves full name for deletion).
+        """
         groups: dict[str, list[BranchInfo]] = {}
         noprefix: list[BranchInfo] = []
 
         for b in branches:
             name = b.name
+            if path_prefix and name.startswith(path_prefix + "/"):
+                name = name[len(path_prefix) + 1:]
             if "/" in name:
                 prefix = name.split("/", 1)[0]
                 groups.setdefault(prefix, []).append(b)
@@ -943,8 +949,8 @@ class BranchesContent(Vertical):
             group_branches = groups[prefix]
             group_node = parent.add(f"{prefix} ({len(group_branches)})", data=None)
             group_node.expand()
-            # Recurse for nested paths (e.g. auth/login under feature)
-            self._build_subtree(group_node, group_branches)
+            new_prefix = f"{path_prefix}/{prefix}" if path_prefix else prefix
+            self._build_subtree(group_node, group_branches, path_prefix=new_prefix)
 
     def _refresh_table(self) -> None:
         self._build_tree()
