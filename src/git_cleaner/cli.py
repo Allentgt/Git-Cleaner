@@ -5,7 +5,7 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="TUI tool for browsing and bulk-deleting git branches"
+        description="TUI tool for managing and cleaning up git repositories"
     )
     parser.add_argument(
         "--repo",

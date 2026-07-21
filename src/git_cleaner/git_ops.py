@@ -1031,7 +1031,8 @@ def drop_commit_from_history(repo_path: Path, commit_sha: str) -> tuple[bool, st
     except RuntimeError as e:
         return False, str(e)
     result = subprocess.run(
-        ["git", "filter-repo", "--invert-paths", "--commit-paths", full_sha, "--force"],
+        ["git", "filter-repo", "--commit-callback",
+         f"commit.original_id != b'{full_sha}'", "--force"],
         capture_output=True, text=True, cwd=repo_path, timeout=300,
     )
     if result.returncode != 0:
@@ -1040,9 +1041,8 @@ def drop_commit_from_history(repo_path: Path, commit_sha: str) -> tuple[bool, st
     return True, f"Dropped commit {commit_sha[:7]}.\nBackup: {branch} → {backup}\nRestore: {restore_cmd}"
 
 
-def force_push(repo_path: Path) -> tuple[bool, str]:
-    """Force-push the current branch to origin. Returns (success, message)."""
-    branch = get_current_branch(repo_path)
+def force_push(repo_path: Path, branch: str) -> tuple[bool, str]:
+    """Force-push the given branch to origin. Returns (success, message)."""
     result = subprocess.run(
         ["git", "push", "--force", "origin", branch],
         capture_output=True, text=True, cwd=repo_path, timeout=60,
