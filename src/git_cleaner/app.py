@@ -663,6 +663,7 @@ class BranchesContent(Vertical):
         self.delete_remote = False
         self.dry_run = False
         self._undo_stack: list[dict[str, str]] = []
+        self.branch_mode: str = "local"  # "local", "remote", or "all"
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -674,6 +675,12 @@ class BranchesContent(Vertical):
             yield Button("1y", id="preset-1y", classes="preset-btn")
             yield Button("Load Branches", id="load-btn", variant="primary")
         with Horizontal(id="filter-row"):
+            yield Select(
+                [("Local", "local"), ("Remote", "remote"), ("All", "all")],
+                id="branch-mode-select",
+                value="local",
+                compact=True,
+            )
             yield Input(placeholder="Search branches...", id="search-input", compact=True)
             yield Select([], id="author-select", prompt="All authors", allow_blank=True, compact=True)
             yield Select(
@@ -738,7 +745,10 @@ class BranchesContent(Vertical):
 
     @on(Select.Changed)
     def _on_filter_changed(self, event: Select.Changed) -> None:
-        if event.select.id in ("author-select", "age-select"):
+        if event.select.id == "branch-mode-select":
+            self.branch_mode = event.select.value if isinstance(event.select.value, str) else "local"
+            asyncio.ensure_future(self._load_branches())
+        elif event.select.id in ("author-select", "age-select"):
             self._refresh_table()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -784,7 +794,13 @@ class BranchesContent(Vertical):
             23, 59, 59, tzinfo=timezone.utc,
         )
 
-        all_branches = list_branches(self.repo_path, since=since_dt, until=until_dt)
+        refspecs_map = {
+            "local": ["refs/heads/"],
+            "remote": ["refs/remotes/"],
+            "all": ["refs/heads/", "refs/remotes/"],
+        }
+        refspecs = refspecs_map.get(self.branch_mode, ["refs/heads/"])
+        all_branches = list_branches(self.repo_path, since=since_dt, until=until_dt, refspecs=refspecs)
 
         protected_patterns = get_protected_patterns(self.repo_path)
         blacklist_patterns = get_blacklist_patterns(self.repo_path)
