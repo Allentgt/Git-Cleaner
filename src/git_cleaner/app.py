@@ -1715,15 +1715,14 @@ class CommitAnalysisContent(Vertical):
             return ""
         return str(sel.value)
 
-    def _prompt_force_push(self, success_msg: str) -> None:
+    def _prompt_force_push(self, success_msg: str, branch: str) -> None:
         """After a successful rewrite, ask whether to force-push."""
-        branch = get_current_branch(self.repo_path)
         self.app.push_screen(
             ForcePushDialog(branch),
-            lambda confirmed: self._do_force_push(confirmed, success_msg),
+            lambda confirmed: self._do_force_push(confirmed, success_msg, branch),
         )
 
-    def _do_force_push(self, confirmed: bool, success_msg: str) -> None:
+    def _do_force_push(self, confirmed: bool, success_msg: str, branch: str) -> None:
         if not confirmed:
             self.query_one("#commit-status", Static).update(
                 success_msg.split("\n")[0] + " — push manually when ready"
@@ -1732,7 +1731,7 @@ class CommitAnalysisContent(Vertical):
         status = self.query_one("#commit-status", Static)
         status.update("Force-pushing...")
         async def _run() -> None:
-            ok, msg = await asyncio.to_thread(force_push, self.repo_path)
+            ok, msg = await asyncio.to_thread(force_push, self.repo_path, branch)
             status.update(msg if ok else msg)
             if ok:
                 self.app.notify(msg, severity="information", timeout=10)
@@ -1767,10 +1766,11 @@ class CommitAnalysisContent(Vertical):
             return
         status = self.query_one("#commit-status", Static)
         status.update(f"Rewriting history to remove '{selected}'...")
+        branch = self._get_visible_branch() or get_current_branch(self.repo_path)
         async def _run() -> None:
             ok, msg = await asyncio.to_thread(delete_file_from_history, self.repo_path, selected)
             if ok:
-                self._prompt_force_push(msg)
+                self._prompt_force_push(msg, branch)
             else:
                 status.update(msg)
         asyncio.ensure_future(_run())
@@ -1804,10 +1804,11 @@ class CommitAnalysisContent(Vertical):
             return
         status = self.query_one("#commit-status", Static)
         status.update(f"Dropping commit {commit}...")
+        branch = self._get_visible_branch() or get_current_branch(self.repo_path)
         async def _run() -> None:
             ok, msg = await asyncio.to_thread(drop_commit_from_history, self.repo_path, commit)
             if ok:
-                self._prompt_force_push(msg)
+                self._prompt_force_push(msg, branch)
             else:
                 status.update(msg)
         asyncio.ensure_future(_run())
@@ -2198,6 +2199,8 @@ class MainScreen(Screen):
         Binding("question", "show_help", "Help"),
         Binding("h", "show_help", "Help"),
         Binding("H", "show_undo_history", "Undo history"),
+        Binding("f", "delete_file", "Delete file from history"),
+        Binding("x", "drop_commit", "Drop commit from history"),
     ]
 
     def __init__(self, repo_path: Path) -> None:
@@ -2279,6 +2282,12 @@ class MainScreen(Screen):
         branches = self.query_one(BranchesContent)
         self.app.push_screen(UndoHistory(branches._undo_stack))
 
+    def action_delete_file(self) -> None:
+        self.query_one(CommitAnalysisContent).action_delete_file()
+
+    def action_drop_commit(self) -> None:
+        self.query_one(CommitAnalysisContent).action_drop_commit()
+
     def _on_switch_repo(self, path: str | None) -> None:
         if path:
             self.app.switch_repo(path)
@@ -2340,15 +2349,13 @@ class ForcePushDialog(ModalScreen[bool]):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        yield Vertical(
-            Label("Force push to origin?"),
-            Static(f"Branch: {self.branch}\nThis will overwrite the remote branch."),
-            Horizontal(
-                Button("Skip", variant="default", id="skip"),
+        with Vertical(id="dialog"):
+            yield Label("Force push to origin?")
+            yield Static(f"Branch: {self.branch}\nThis will overwrite the remote branch.")
+            yield Horizontal(
+                Button("Cancel", variant="default", id="cancel"),
                 Button("Force push", variant="error", id="confirm"),
-            ),
-            id="dialog",
-        )
+            )
 
     def on_mount(self) -> None:
         self.query_one("#confirm", Button).focus()
