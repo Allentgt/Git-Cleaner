@@ -803,9 +803,11 @@ class BranchesContent(Vertical):
         blacklist_patterns = get_blacklist_patterns(self.repo_path)
 
         for b in all_branches:
-            if b.is_current or matches_any(b.name, protected_patterns):
+            # Strip remote prefix (e.g. "origin/main" → "main") for pattern matching
+            bare_name = b.name.split("/", 1)[1] if "/" in b.name else b.name
+            if b.is_current or matches_any(b.name, protected_patterns) or matches_any(bare_name, protected_patterns):
                 b.is_protected = True
-            if matches_any(b.name, blacklist_patterns):
+            if matches_any(b.name, blacklist_patterns) or matches_any(bare_name, blacklist_patterns):
                 b.is_blacklisted = True
 
         self.branches = all_branches
@@ -891,27 +893,60 @@ class BranchesContent(Vertical):
         tree = self.query_one("#branch-table", Tree)
         tree.clear()
 
+        filtered = self._filtered_branches()
+
+        # In "All" mode, split into Local and Remote top-level headings
+        if self.branch_mode == "all":
+            remote_names = self._get_remote_names()
+            local = [b for b in filtered if not any(b.name.startswith(r + "/") for r in remote_names)]
+            remote = [b for b in filtered if b not in local]
+            if local:
+                local_node = tree.root.add(f"Local ({len(local)})", data=None)
+                local_node.expand()
+                self._build_subtree(local_node, local, strip_remote=False)
+            if remote:
+                remote_node = tree.root.add(f"Remote ({len(remote)})", data=None)
+                remote_node.expand()
+                self._build_subtree(remote_node, remote, strip_remote=True)
+        else:
+            self._build_subtree(tree.root, filtered, strip_remote=False)
+
+    def _get_remote_names(self) -> list[str]:
+        """Return list of remote names (e.g. ['origin'])."""
+        try:
+            result = subprocess.run(
+                ["git", "remote"], capture_output=True, text=True, cwd=self.repo_path
+            )
+            if result.returncode == 0:
+                return [r.strip() for r in result.stdout.strip().split("\n") if r.strip()]
+        except Exception:
+            pass
+        return ["origin"]  # ponytail: fallback if git remote fails
+
+    def _build_subtree(self, parent, branches: list[BranchInfo], strip_remote: bool = False) -> None:
+        """Build recursively nested prefix-grouped subtree under a parent node."""
         groups: dict[str, list[BranchInfo]] = {}
         noprefix: list[BranchInfo] = []
 
-        for b in self._filtered_branches():
-            if "/" in b.name:
-                prefix = b.name.split("/", 1)[0]
+        for b in branches:
+            name = b.name
+            if strip_remote and "/" in name:
+                name = name.split("/", 1)[1]
+            if "/" in name:
+                prefix = name.split("/", 1)[0]
                 groups.setdefault(prefix, []).append(b)
             else:
                 noprefix.append(b)
 
-        # Branches without prefix
         for b in sorted(noprefix, key=lambda x: x.name):
-            self._add_branch_node(tree.root, b)
+            self._add_branch_node(parent, b)
 
-        # Prefix groups (collapsible)
         for prefix in sorted(groups.keys()):
             group_branches = groups[prefix]
-            group_node = tree.root.add(f"{prefix} ({len(group_branches)})", data=None)
+            group_node = parent.add(f"{prefix} ({len(group_branches)})", data=None)
             group_node.expand()
-            for b in sorted(group_branches, key=lambda x: x.name):
-                self._add_branch_node(group_node, b)
+            # Recurse for nested paths (e.g. auth/login under feature)
+            self._build_subtree(group_node, group_branches, strip_remote=False)
 
     def _refresh_table(self) -> None:
         self._build_tree()
