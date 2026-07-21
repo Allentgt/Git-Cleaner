@@ -137,6 +137,42 @@ def test_delete_remote_branches_fails_without_remote():
         assert "old/experiment" in failed
 
 
+def test_list_branches_remote():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        # Create a bare remote and push
+        bare = Path(tmp) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=repo, capture_output=True)
+        subprocess.run(["git", "push", "origin", "main"], cwd=repo, capture_output=True)
+        subprocess.run(["git", "push", "origin", "feature/test"], cwd=repo, capture_output=True)
+        # List remote branches
+        branches = list_branches(repo, refspecs=["refs/remotes/"])
+        names = [b.name for b in branches]
+        assert "origin/main" in names
+        assert "origin/feature/test" in names
+        # Local-only branches should NOT appear
+        assert "main" not in names
+
+
+def test_list_branches_all():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "myrepo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        bare = Path(tmp) / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=repo, capture_output=True)
+        subprocess.run(["git", "push", "origin", "main"], cwd=repo, capture_output=True)
+        branches = list_branches(repo, refspecs=["refs/heads/", "refs/remotes/"])
+        names = [b.name for b in branches]
+        # Both local and remote should appear
+        assert "main" in names
+        assert "origin/main" in names
+
+
 def test_branch_info_dataclass():
     dt = datetime.now(timezone.utc)
     b = BranchInfo(
