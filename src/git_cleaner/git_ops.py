@@ -55,58 +55,54 @@ def list_branches(
         refspecs = ["refs/heads/"]
 
     branches: list[BranchInfo] = []
-    for refspec in refspecs:
-        result = subprocess.run(
-            [
-                "git",
-                "for-each-ref",
-                refspec,
-                "--format=%(refname:short)%00%(committerdate:unix)%00%(authorname)%00%(HEAD)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(objectname)",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Git error: {result.stderr}")
+    result = subprocess.run(
+        ["git", "for-each-ref"] + refspecs + [
+            "--format=%(refname:short)%00%(committerdate:unix)%00%(authorname)%00%(HEAD)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(objectname)",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Git error: {result.stderr}")
 
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split("\0")
-            if len(parts) < 4:
-                continue
-            name = parts[0]
-            ts = int(parts[1])
-            author = parts[2]
-            is_current = parts[3] == "*"
-            upstream = parts[4] if len(parts) > 4 else ""
-            track = parts[5] if len(parts) > 5 else ""
-            commit_hash = parts[6] if len(parts) > 6 else ""
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("\0")
+        if len(parts) < 4:
+            continue
+        name = parts[0]
+        ts = int(parts[1])
+        author = parts[2]
+        is_current = parts[3] == "*"
+        upstream = parts[4] if len(parts) > 4 else ""
+        track = parts[5] if len(parts) > 5 else ""
+        commit_hash = parts[6] if len(parts) > 6 else ""
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
 
-            if since is not None and dt < since:
-                continue
-            if until is not None and dt > until:
-                continue
+        if since is not None and dt < since:
+            continue
+        if until is not None and dt > until:
+            continue
 
-            has_upstream = bool(upstream)
-            ahead, behind = 0, 0
-            if has_upstream and track:
-                for part in track.split(", "):
-                    part = part.strip()
-                    if part.startswith("ahead "):
-                        ahead = int(part[6:])
-                    elif part.startswith("behind "):
-                        behind = int(part[7:])
+        has_upstream = bool(upstream)
+        ahead, behind = 0, 0
+        if has_upstream and track:
+            for part in track.split(", "):
+                part = part.strip()
+                if part.startswith("ahead "):
+                    ahead = int(part[6:])
+                elif part.startswith("behind "):
+                    behind = int(part[7:])
 
-            branches.append(
-                BranchInfo(
-                    name=name, commit_date=dt, is_current=is_current, author=author,
-                    ahead=ahead, behind=behind, has_upstream=has_upstream,
-                    commit_hash=commit_hash,
-                )
+        branches.append(
+            BranchInfo(
+                name=name, commit_date=dt, is_current=is_current, author=author,
+                ahead=ahead, behind=behind, has_upstream=has_upstream,
+                commit_hash=commit_hash,
             )
+        )
 
     return branches
 
