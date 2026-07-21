@@ -923,3 +923,130 @@ def get_stale_branches_across_repos(
                 ))
     results.sort(key=lambda x: -x.age_days)
     return results
+
+
+# ── History rewriting (git filter-repo) ──────────────────────────────────────
+
+
+def is_filter_repo_available() -> bool:
+    """Check if git-filter-repo is installed."""
+    result = subprocess.run(
+        ["git", "filter-repo", "--version"],
+        capture_output=True, text=True, timeout=5,
+    )
+    return result.returncode == 0
+
+
+def get_current_branch(repo_path: Path) -> str:
+    """Return the current branch name."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, cwd=repo_path, timeout=5,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Not on a branch")
+    return result.stdout.strip()
+
+
+def create_backup_branch(repo_path: Path) -> str:
+    """Create a backup branch before history rewrite. Returns the backup branch name."""
+    branch = get_current_branch(repo_path)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
+    backup_name = f"backup/rewrite-{ts}"
+    result = subprocess.run(
+        ["git", "branch", backup_name],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to create backup branch: {result.stderr.strip()}")
+    return backup_name
+
+
+def get_commit_files(repo_path: Path, commit_sha: str) -> list[str]:
+    """Return list of files changed in a commit."""
+    result = subprocess.run(
+        ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", commit_sha],
+        capture_output=True, text=True, cwd=repo_path, timeout=10,
+    )
+    if result.returncode != 0:
+        return []
+    return [f for f in result.stdout.strip().splitlines() if f]
+
+
+def get_full_commit_hash(repo_path: Path, short_hash: str) -> str:
+    """Resolve a short hash to full commit hash."""
+    result = subprocess.run(
+        ["git", "rev-parse", short_hash],
+        capture_output=True, text=True, cwd=repo_path, timeout=5,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Unknown commit: {short_hash}")
+    return result.stdout.strip()
+
+
+def count_commits_affected(repo_path: Path, branch: str, file_path: str) -> int:
+    """Count how many commits touched a file (for preview)."""
+    result = subprocess.run(
+        ["git", "log", "--oneline", branch, "--", file_path],
+        capture_output=True, text=True, cwd=repo_path, timeout=15,
+    )
+    if result.returncode != 0:
+        return 0
+    return len([l for l in result.stdout.strip().splitlines() if l])
+
+
+def delete_file_from_history(repo_path: Path, file_path: str) -> tuple[bool, str]:
+    """Remove a file from entire git history using git filter-repo.
+
+    Returns (success, message).
+    """
+    if not is_filter_repo_available():
+        return False, "git-filter-repo is not installed"
+    branch = get_current_branch(repo_path)
+    try:
+        backup = create_backup_branch(repo_path)
+    except RuntimeError as e:
+        return False, str(e)
+    result = subprocess.run(
+        ["git", "filter-repo", "--invert-paths", "--path", file_path, "--force"],
+        capture_output=True, text=True, cwd=repo_path, timeout=300,
+    )
+    if result.returncode != 0:
+        return False, f"filter-repo failed: {result.stderr.strip()}"
+    restore_cmd = f"git reset --hard {backup}"
+    return True, f"Deleted '{file_path}' from history.\nBackup: {branch} → {backup}\nRestore: {restore_cmd}"
+
+
+def drop_commit_from_history(repo_path: Path, commit_sha: str) -> tuple[bool, str]:
+    """Drop a commit from history using git filter-repo.
+
+    Returns (success, message).
+    """
+    if not is_filter_repo_available():
+        return False, "git-filter-repo is not installed"
+    full_sha = get_full_commit_hash(repo_path, commit_sha)
+    branch = get_current_branch(repo_path)
+    try:
+        backup = create_backup_branch(repo_path)
+    except RuntimeError as e:
+        return False, str(e)
+    result = subprocess.run(
+        ["git", "filter-repo", "--invert-paths", "--commit-paths", full_sha, "--force"],
+        capture_output=True, text=True, cwd=repo_path, timeout=300,
+    )
+    if result.returncode != 0:
+        return False, f"filter-repo failed: {result.stderr.strip()}"
+    restore_cmd = f"git reset --hard {backup}"
+    return True, f"Dropped commit {commit_sha[:7]}.\nBackup: {branch} → {backup}\nRestore: {restore_cmd}"
+
+
+def force_push(repo_path: Path) -> tuple[bool, str]:
+    """Force-push the current branch to origin. Returns (success, message)."""
+    branch = get_current_branch(repo_path)
+    result = subprocess.run(
+        ["git", "push", "--force", "origin", branch],
+        capture_output=True, text=True, cwd=repo_path, timeout=60,
+    )
+    if result.returncode != 0:
+        return False, f"Push failed: {result.stderr.strip()}"
+    return True, f"Force-pushed {branch} to origin"

@@ -90,6 +90,14 @@ from git_cleaner.git_ops import (
     _get_api_token,
     get_stale_branches_across_repos,
     StaleBranchInfo,
+    is_filter_repo_available,
+    get_commit_files,
+    get_full_commit_hash,
+    count_commits_affected,
+    delete_file_from_history,
+    drop_commit_from_history,
+    force_push,
+    get_current_branch,
 )
 
 
@@ -1688,6 +1696,122 @@ class CommitAnalysisContent(Vertical):
         self._show_only("log")
         status.update(f"{len(commits)} commits · {len(authors)} authors · {len(large)} large")
 
+    # ── History rewriting actions ─────────────────────────────────────────
+
+    def _get_selected_commit(self) -> str | None:
+        """Return the short hash of the currently selected commit in the log table, or None."""
+        table = self.query_one("#commit-log-table", DataTable)
+        if table.cursor_coordinate is None:
+            return None
+        row = table.get_row_at(table.cursor_coordinate.row)
+        if not row:
+            return None
+        return str(row[0])  # Hash column
+
+    def _get_visible_branch(self) -> str:
+        """Return the branch currently loaded in the commit log."""
+        sel = self.query_one("#commit-branch-select", Select)
+        if sel.value is Select.NULL:
+            return ""
+        return str(sel.value)
+
+    def _prompt_force_push(self, success_msg: str) -> None:
+        """After a successful rewrite, ask whether to force-push."""
+        branch = get_current_branch(self.repo_path)
+        self.app.push_screen(
+            ForcePushDialog(branch),
+            lambda confirmed: self._do_force_push(confirmed, success_msg),
+        )
+
+    def _do_force_push(self, confirmed: bool, success_msg: str) -> None:
+        if not confirmed:
+            self.query_one("#commit-status", Static).update(
+                success_msg.split("\n")[0] + " — push manually when ready"
+            )
+            return
+        status = self.query_one("#commit-status", Static)
+        status.update("Force-pushing...")
+        async def _run() -> None:
+            ok, msg = await asyncio.to_thread(force_push, self.repo_path)
+            status.update(msg if ok else msg)
+            if ok:
+                self.app.notify(msg, severity="information", timeout=10)
+        asyncio.ensure_future(_run())
+
+    def action_delete_file(self) -> None:
+        """Prompt for a file path and delete it from history."""
+        if not is_filter_repo_available():
+            self.query_one("#commit-status", Static).update("git-filter-repo not installed — run: pip install git-filter-repo")
+            return
+        commit = self._get_selected_commit()
+        if not commit:
+            self.query_one("#commit-status", Static).update("Select a commit first (load the log, then move cursor to a row).")
+            return
+        full_sha = get_full_commit_hash(self.repo_path, commit)
+        files = get_commit_files(self.repo_path, full_sha)
+        if not files:
+            self.query_one("#commit-status", Static).update(f"Commit {commit} has no changed files.")
+            return
+        self.app.push_screen(
+            RewriteConfirmDialog(
+                title="Delete file from history",
+                description=f"Remove a file from every commit on the current branch.\nCommit {commit} touches {len(files)} file(s):",
+                items=files,
+                is_file_picker=True,
+            ),
+            lambda result: self._do_delete_file(result, files),
+        )
+
+    def _do_delete_file(self, selected: str | None, files: list[str]) -> None:
+        if not selected:
+            return
+        status = self.query_one("#commit-status", Static)
+        status.update(f"Rewriting history to remove '{selected}'...")
+        async def _run() -> None:
+            ok, msg = await asyncio.to_thread(delete_file_from_history, self.repo_path, selected)
+            if ok:
+                self._prompt_force_push(msg)
+            else:
+                status.update(msg)
+        asyncio.ensure_future(_run())
+
+    def action_drop_commit(self) -> None:
+        """Drop the selected commit from history."""
+        if not is_filter_repo_available():
+            self.query_one("#commit-status", Static).update("git-filter-repo not installed — run: pip install git-filter-repo")
+            return
+        commit = self._get_selected_commit()
+        if not commit:
+            self.query_one("#commit-status", Static).update("Select a commit first (load the log, then move cursor to a row).")
+            return
+        branch = self._get_visible_branch()
+        if not branch:
+            self.query_one("#commit-status", Static).update("Load a branch first.")
+            return
+        affected = count_commits_affected(self.repo_path, branch, commit)
+        self.app.push_screen(
+            RewriteConfirmDialog(
+                title="Drop commit from history",
+                description=f"Remove commit {commit} from the branch. All subsequent commits will be rewritten.\nApproximately {affected} commit(s) on this branch.",
+                items=[commit],
+                is_file_picker=False,
+            ),
+            lambda result: self._do_drop_commit(result, commit),
+        )
+
+    def _do_drop_commit(self, confirmed: bool, commit: str) -> None:
+        if not confirmed:
+            return
+        status = self.query_one("#commit-status", Static)
+        status.update(f"Dropping commit {commit}...")
+        async def _run() -> None:
+            ok, msg = await asyncio.to_thread(drop_commit_from_history, self.repo_path, commit)
+            if ok:
+                self._prompt_force_push(msg)
+            else:
+                status.update(msg)
+        asyncio.ensure_future(_run())
+
 
 class PRIntegrationContent(Vertical):
     """Pull Requests tab: show open PRs/MRs from GitHub or GitLab."""
@@ -2158,6 +2282,79 @@ class MainScreen(Screen):
     def _on_switch_repo(self, path: str | None) -> None:
         if path:
             self.app.switch_repo(path)
+
+
+class RewriteConfirmDialog(ModalScreen[str | None]):
+    """Modal dialog to select a file to remove from history, or confirm a commit drop."""
+
+    def __init__(self, title: str, description: str, items: list[str], is_file_picker: bool = False) -> None:
+        self.title_text = title
+        self.description = description
+        self.items = items
+        self.is_file_picker = is_file_picker
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        item_list = "\n".join(f"  • {i}" for i in self.items[:20])
+        if len(self.items) > 20:
+            item_list += f"\n  ... and {len(self.items) - 20} more"
+        with Vertical(id="dialog"):
+            yield Label(self.title_text)
+            yield Static(self.description)
+            yield Static(item_list)
+            if self.is_file_picker and len(self.items) > 1:
+                yield Select(
+                    [(f, f) for f in self.items],
+                    id="rewrite-file-select",
+                    prompt="Select file to remove",
+                    allow_blank=True,
+                )
+            yield Horizontal(
+                Button("Cancel", variant="default", id="cancel"),
+                Button("Rewrite", variant="error", id="confirm"),
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm":
+            if self.is_file_picker and len(self.items) > 1:
+                sel = self.query_one("#rewrite-file-select", Select)
+                if sel.value is Select.NULL:
+                    self.notify("Select a file first.", severity="warning")
+                    return
+                self.dismiss(str(sel.value))
+            else:
+                # Single file or commit drop — confirm directly
+                self.dismiss(self.items[0])
+        else:
+            self.dismiss(None)
+
+
+class ForcePushDialog(ModalScreen[bool]):
+    """Modal dialog asking whether to force-push after a history rewrite."""
+
+    def __init__(self, branch: str) -> None:
+        self.branch = branch
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("Force push to origin?"),
+            Static(f"Branch: {self.branch}\nThis will overwrite the remote branch."),
+            Horizontal(
+                Button("Skip", variant="default", id="skip"),
+                Button("Force push", variant="error", id="confirm"),
+            ),
+            id="dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm")
 
 
 class ConfirmationDialog(ModalScreen[bool]):
