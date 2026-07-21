@@ -882,7 +882,12 @@ class BranchesContent(Vertical):
         stale = " [red]! stale[/]" if self._is_stale(b) else ""
         health = self._get_health_indicator(b)
         badge = self._get_status_badge(b)
-        name_display = f"{b.name} [dim]{health}[/]" if health else b.name
+        display_name = b.name
+        for r in self._get_remote_names():
+            if display_name.startswith(r + "/"):
+                display_name = display_name[len(r) + 1:]
+                break
+        name_display = f"{display_name} [dim]{health}[/]" if health else display_name
         if badge:
             name_display = f"{name_display} [yellow]({badge})[/]"
         label = f"{checked}[bold]{name_display}[/]  [{age_color}]{age}[/]  [dim]{upstream}[/]{stale}"
@@ -1176,12 +1181,21 @@ class BranchesContent(Vertical):
                 failed: list[str] = []
 
                 # Split into local and remote targets
+                # Remote names include prefix (origin/foo) — strip for git push
+                remote_names = self._get_remote_names()
+                def _strip_remote(n: str) -> str:
+                    for r in remote_names:
+                        if n.startswith(r + "/"):
+                            return n[len(r) + 1:]
+                    return n
+
                 if self.branch_mode == "remote":
-                    remote_targets = to_delete
+                    remote_targets = [_strip_remote(n) for n in to_delete]
                     local_targets = []
                 elif self.branch_mode == "all":
-                    remote_targets = [n for n in to_delete if n.startswith("origin/")]
-                    local_targets = [n for n in to_delete if not n.startswith("origin/")]
+                    is_remote = [any(n.startswith(r + "/") for r in remote_names) for n in to_delete]
+                    remote_targets = [_strip_remote(n) for n, ir in zip(to_delete, is_remote) if ir]
+                    local_targets = [n for n, ir in zip(to_delete, is_remote) if not ir]
                 else:  # local
                     remote_targets = []
                     local_targets = to_delete
