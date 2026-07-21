@@ -177,7 +177,7 @@ DateRangePicker {
 }
 
 /* === Compact buttons (all except DateRangePicker internals) === */
-#load-btn, .preset-btn, #toggle-remote, #toggle-dry-run,
+#load-btn, .preset-btn, #toggle-dry-run,
 #export-csv, #export-json,
 .task-button, #refresh-health,
 #stash-drop, #stash-apply, #stash-pop, #stash-refresh,
@@ -226,6 +226,12 @@ DateRangePicker {
     margin: 0 0 0 1;
 }
 
+#branch-mode-select {
+    width: 14;
+    min-width: 10;
+    margin: 0 1 0 0;
+}
+
 /* === Error / status messages === */
 #status-bar {
     height: 1;
@@ -246,11 +252,6 @@ DateRangePicker {
 #action-spacer {
     width: 1fr;
     height: 1;
-}
-
-#toggle-remote {
-    width: 18;
-    min-width: 18;
 }
 
 #toggle-dry-run {
@@ -660,7 +661,6 @@ class BranchesContent(Vertical):
         self.selected: set[str] = set()
         self.show_protected = False
         self.show_blacklisted = False
-        self.delete_remote = False
         self.dry_run = False
         self._undo_stack: list[dict[str, str]] = []
         self.branch_mode: str = "local"  # "local", "remote", or "all"
@@ -693,7 +693,6 @@ class BranchesContent(Vertical):
         yield Tree("", id="branch-table")
         yield Vertical(Static("Click a branch to see details", id="details-content"), id="details-pane")
         with Horizontal(id="action-row"):
-            yield Button("Remote: OFF", id="toggle-remote", variant="warning")
             yield Button("Dry Run: OFF", id="toggle-dry-run", variant="primary")
             yield Static("", id="action-spacer")
             yield Button("Export as CSV", id="export-csv", variant="primary")
@@ -755,8 +754,6 @@ class BranchesContent(Vertical):
         btn_id = event.button.id
         if btn_id == "load-btn":
             await self._load_branches()
-        elif btn_id == "toggle-remote":
-            self._toggle_remote()
         elif btn_id == "toggle-dry-run":
             self._toggle_dry_run()
         elif btn_id == "export-csv":
@@ -929,7 +926,7 @@ class BranchesContent(Vertical):
         status.update(
             f"Total: {total} | Selected: {n_selected} | "
             f"Protected: {n_protected} | Blacklisted: {n_blacklisted} | "
-            f"Remote: {'ON' if self.delete_remote else 'OFF'} | "
+            f"Mode: {self.branch_mode.title()} | "
             f"Dry Run: {'ON' if self.dry_run else 'OFF'} | "
             f"\\[P]rotected: {'show' if self.show_protected else 'hide'} | "
             f"\\[B]lacklisted: {'show' if self.show_blacklisted else 'hide'}"
@@ -1021,13 +1018,6 @@ class BranchesContent(Vertical):
             })
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         self.notify(f"Exported {len(rows)} branches to {path}", timeout=5)
-
-    def _toggle_remote(self) -> None:
-        self.delete_remote = not self.delete_remote
-        btn = self.query_one("#toggle-remote", Button)
-        btn.label = "Remote: ON" if self.delete_remote else "Remote: OFF"
-        btn.variant = "error" if self.delete_remote else "warning"
-        self._update_status()
 
     def _toggle_dry_run(self) -> None:
         self.dry_run = not self.dry_run
@@ -1144,32 +1134,45 @@ class BranchesContent(Vertical):
             if confirmed:
                 self._push_undo(hashes)
                 total = len(to_delete)
-                failed_local: list[str] = []
-                for i, name in enumerate(to_delete, 1):
+                failed: list[str] = []
+
+                # Split into local and remote targets
+                if self.branch_mode == "remote":
+                    remote_targets = to_delete
+                    local_targets = []
+                elif self.branch_mode == "all":
+                    remote_targets = [n for n in to_delete if n.startswith("origin/")]
+                    local_targets = [n for n in to_delete if not n.startswith("origin/")]
+                else:  # local
+                    remote_targets = []
+                    local_targets = to_delete
+
+                # Delete local branches
+                for i, name in enumerate(local_targets, 1):
                     self._on_delete_progress(i, total, name)
-                    await asyncio.sleep(0)  # yield to let Textual render
+                    await asyncio.sleep(0)
                     result = delete_branches(self.repo_path, [name])
                     if result:
-                        failed_local.extend(result)
-                failed_remote: list[str] = []
-                if self.delete_remote:
-                    remote_targets = [n for n in to_delete if n not in failed_local]
-                    remote_total = len(remote_targets)
-                    for i, name in enumerate(remote_targets, 1):
-                        self._on_delete_progress(i, remote_total, f"{name} (remote)")
-                        await asyncio.sleep(0)  # yield to let Textual render
-                        result = delete_remote_branches(self.repo_path, [name])
-                        if result:
-                            failed_remote.extend(result)
-                all_failed = list(set(failed_local + failed_remote))
-                if all_failed:
+                        failed.extend(result)
+
+                # Delete remote branches
+                for i, name in enumerate(remote_targets, 1):
+                    self._on_delete_progress(i, total, f"{name} (remote)")
+                    await asyncio.sleep(0)
+                    result = delete_remote_branches(self.repo_path, [name])
+                    if result:
+                        failed.extend(result)
+
+                if failed:
                     self.query_one("#status-bar", Static).update(
-                        f"Failed: {', '.join(all_failed)}"
+                        f"Failed: {', '.join(failed)}"
                     )
                 else:
                     parts = [f"Deleted {len(to_delete)} branch(es)"]
-                    if self.delete_remote:
+                    if remote_targets and local_targets:
                         parts.append("(local + remote)")
+                    elif remote_targets:
+                        parts.append("(remote)")
                     self.query_one("#status-bar", Static).update(
                         " ".join(parts) + " — press u to undo"
                     )
@@ -1177,7 +1180,7 @@ class BranchesContent(Vertical):
                 asyncio.ensure_future(self._load_branches())
 
         self.app.push_screen(
-            ConfirmationDialog(list(self.selected), delete_remote=self.delete_remote),
+            ConfirmationDialog(list(self.selected), delete_remote=self.branch_mode != "local"),
             handle_confirmation,
         )
 
@@ -2010,7 +2013,7 @@ class MainScreen(Screen):
         Binding("d", "delete_selected", "Delete selected"),
         Binding("p", "toggle_protected", "Toggle protected visibility"),
         Binding("b", "toggle_blacklisted", "Toggle blacklisted visibility"),
-        Binding("r", "toggle_remote", "Toggle remote deletion"),
+        Binding("r", "cycle_branch_mode", "Cycle branch scope"),
         Binding("ctrl+r", "reload", "Reload"),
         Binding("u", "undo_deletion", "Undo"),
         Binding("U", "undo_all", "Undo all"),
@@ -2069,8 +2072,14 @@ class MainScreen(Screen):
     def action_toggle_blacklisted(self) -> None:
         self.query_one(BranchesContent).toggle_blacklisted()
 
-    def action_toggle_remote(self) -> None:
-        self.query_one(BranchesContent)._toggle_remote()
+    def action_cycle_branch_mode(self) -> None:
+        modes = ["local", "remote", "all"]
+        bc = self.query_one(BranchesContent)
+        idx = modes.index(bc.branch_mode) if bc.branch_mode in modes else 0
+        bc.branch_mode = modes[(idx + 1) % len(modes)]
+        # Update the Select widget to reflect the change
+        sel = bc.query_one("#branch-mode-select", Select)
+        sel.value = bc.branch_mode
 
     def action_reload(self) -> None:
         self.query_one(BranchesContent).reload()
